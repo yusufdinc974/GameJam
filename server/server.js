@@ -14,7 +14,7 @@ const ORB_COUNT = 180;
 const MAP_BOUNDARY = 200;
 const ORB_COLLECT_RADIUS = 1.2;
 const EXP_PER_ORB = 1;
-const EXP_PER_LEVEL = 5;
+const BASE_EXP_REQUIREMENT = 100;
 const SCALE_PER_LEVEL = 0.2;
 const KILL_BOUNTY_EXP = 50;
 const BOT_BOUNTY_EXP = 12;
@@ -89,36 +89,95 @@ initializeMapEnvironment();
 const CLASS_DEFS = {
   warrior: {
     type: 'cube', maxHealth: 150, currentHealth: 150, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.0, attackCooldown: 500, damageMultiplier: 1.0,
+    speedMultiplier: 1.0, attackCooldown: 500, damageMultiplier: 1.0, baseDamage: 20,
   },
   archer: {
     type: 'pyramid', maxHealth: 80, currentHealth: 80, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.2, attackCooldown: 300, damageMultiplier: 1.0,
+    speedMultiplier: 1.2, attackCooldown: 300, damageMultiplier: 1.0, baseDamage: 15,
   },
   mage: {
     type: 'icosahedron', maxHealth: 90, currentHealth: 90, maxMana: 50, currentMana: 50,
-    speedMultiplier: 0.9, attackCooldown: 800, damageMultiplier: 1.5,
+    speedMultiplier: 0.9, attackCooldown: 800, damageMultiplier: 1.5, baseDamage: 15,
   },
   priest: {
     type: 'torus', maxHealth: 120, currentHealth: 120, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.1, attackCooldown: 400, damageMultiplier: 0.6,
+    speedMultiplier: 1.1, attackCooldown: 400, damageMultiplier: 0.6, baseDamage: 15,
   },
   assassin: {
     type: 'octahedron', maxHealth: 70, currentHealth: 70, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.4, attackCooldown: 260, damageMultiplier: 1.5,
+    speedMultiplier: 1.4, attackCooldown: 260, damageMultiplier: 1.5, baseDamage: 18,
   },
   summoner: {
     type: 'hexagon', maxHealth: 100, currentHealth: 100, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.0, attackCooldown: 420, damageMultiplier: 0.8,
+    speedMultiplier: 1.0, attackCooldown: 420, damageMultiplier: 0.8, baseDamage: 13,
   },
   chaos: {
     type: 'dodecahedron', maxHealth: 90, currentHealth: 90, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.0, attackCooldown: 500, damageMultiplier: 1.2,
+    speedMultiplier: 1.0, attackCooldown: 500, damageMultiplier: 1.2, baseDamage: 16,
   },
   engineer: {
     type: 'cylinder', maxHealth: 120, currentHealth: 120, maxMana: 50, currentMana: 50,
-    speedMultiplier: 0.9, attackCooldown: 350, damageMultiplier: 1.0,
+    speedMultiplier: 0.9, attackCooldown: 350, damageMultiplier: 1.0, baseDamage: 15,
   },
+};
+
+const CLASS_SKILLS = {
+  warrior: [
+    { id: 'juggernaut', name: 'Juggernaut', emoji: '🛡️', description: 'Increases max HP and body mass.', maxLevel: 5 },
+    { id: 'spikyArmor', name: 'Spiky Armor', emoji: '🦔', description: 'Hardened spikes radiate from your shell.', maxLevel: 5 },
+    { id: 'battleCry', name: 'Battle Cry', emoji: '📣', description: 'Empowers your strikes with raw force.', maxLevel: 5 },
+    { id: 'executioner', name: 'Executioner', emoji: '🪓', description: 'Raises basic attack lethality.', maxLevel: 5 },
+    { id: 'fortressStride', name: 'Fortress Stride', emoji: '👣', description: 'Heavy steps become unexpectedly swift.', maxLevel: 5 },
+  ],
+  archer: [
+    { id: 'eagleEye', name: 'Eagle Eye', emoji: '🦅', description: 'Precision instincts sharpen all shots.', maxLevel: 5 },
+    { id: 'quickdraw', name: 'Quickdraw', emoji: '🏹', description: 'Lowers attack delay for faster firing.', maxLevel: 5 },
+    { id: 'piercingShots', name: 'Piercing Shots', emoji: '🎯', description: 'Bolts punch harder through defenses.', maxLevel: 5 },
+    { id: 'windrunner', name: 'Windrunner', emoji: '💨', description: 'Improves movement speed between volleys.', maxLevel: 5 },
+    { id: 'marksmanFocus', name: 'Marksman Focus', emoji: '🔭', description: 'Steady aim increases baseline damage.', maxLevel: 5 },
+  ],
+  mage: [
+    { id: 'arcaneOverflow', name: 'Arcane Overflow', emoji: '✨', description: 'Arcane output amplifies base damage.', maxLevel: 5 },
+    { id: 'singularityCore', name: 'Singularity Core', emoji: '🕳️', description: 'Your gravity magic grows denser.', maxLevel: 5 },
+    { id: 'manaSurge', name: 'Mana Surge', emoji: '🔋', description: 'Empowers sustained spellcasting.', maxLevel: 5 },
+    { id: 'frostbrand', name: 'Frostbrand', emoji: '❄️', description: 'Infuses attacks with biting arcana.', maxLevel: 5 },
+    { id: 'voidPulse', name: 'Void Pulse', emoji: '🌌', description: 'Dark pulses intensify magical impact.', maxLevel: 5 },
+  ],
+  priest: [
+    { id: 'sacredBloom', name: 'Sacred Bloom', emoji: '🌿', description: 'Raises your health pool with holy life.', maxLevel: 5 },
+    { id: 'guardianAura', name: 'Guardian Aura', emoji: '🕊️', description: 'Protective aura enhances resilience.', maxLevel: 5 },
+    { id: 'swiftPrayer', name: 'Swift Prayer', emoji: '🙏', description: 'Blessed focus grants extra movement speed.', maxLevel: 5 },
+    { id: 'renewingLight', name: 'Renewing Light', emoji: '💚', description: 'Healing energies strengthen your form.', maxLevel: 5 },
+    { id: 'blessedShell', name: 'Blessed Shell', emoji: '🔰', description: 'Holy shell reinforces your body.', maxLevel: 5 },
+  ],
+  assassin: [
+    { id: 'shadowstep', name: 'Shadowstep', emoji: '🌑', description: 'Dark footwork boosts movement speed.', maxLevel: 5 },
+    { id: 'poisonEdge', name: 'Poison Edge', emoji: '☠️', description: 'Coated blades increase base damage.', maxLevel: 5 },
+    { id: 'backstabMastery', name: 'Backstab Mastery', emoji: '🗡️', description: 'Ambush style improves strike power.', maxLevel: 5 },
+    { id: 'smokeVeil', name: 'Smoke Veil', emoji: '🌫️', description: 'Veiled posture improves survivability.', maxLevel: 5 },
+    { id: 'bloodlust', name: 'Bloodlust', emoji: '🩸', description: 'Kills fuel relentless offensive flow.', maxLevel: 5 },
+  ],
+  summoner: [
+    { id: 'beastMastery', name: 'Beast Mastery', emoji: '🐺', description: 'Companions answer your call with vigor.', maxLevel: 5 },
+    { id: 'packBond', name: 'Pack Bond', emoji: '🤝', description: 'Your summons coordinate more effectively.', maxLevel: 5 },
+    { id: 'spiritFangs', name: 'Spirit Fangs', emoji: '🦷', description: 'Summoned attacks gain base damage.', maxLevel: 5 },
+    { id: 'astralLink', name: 'Astral Link', emoji: '🔗', description: 'Links with summons harden your body.', maxLevel: 5 },
+    { id: 'wildGrowth', name: 'Wild Growth', emoji: '🌱', description: 'Natural momentum increases speed.', maxLevel: 5 },
+  ],
+  chaos: [
+    { id: 'warpedMind', name: 'Warped Mind', emoji: '🧠', description: 'Reality twists empower your output.', maxLevel: 5 },
+    { id: 'entropyField', name: 'Entropy Field', emoji: '🌀', description: 'Chaotic field bolsters survivability.', maxLevel: 5 },
+    { id: 'hexedMomentum', name: 'Hexed Momentum', emoji: '⚡', description: 'Hex currents accelerate your motion.', maxLevel: 5 },
+    { id: 'mirrorPain', name: 'Mirror Pain', emoji: '🪞', description: 'Reflected agony sharpens your attacks.', maxLevel: 5 },
+    { id: 'realityRend', name: 'Reality Rend', emoji: '💥', description: 'Rifts increase your baseline damage.', maxLevel: 5 },
+  ],
+  engineer: [
+    { id: 'reinforcedPlating', name: 'Reinforced Plating', emoji: '🧱', description: 'Extra armor plating raises max HP.', maxLevel: 5 },
+    { id: 'overclock', name: 'Overclock', emoji: '⚙️', description: 'Mechanical tuning improves speed.', maxLevel: 5 },
+    { id: 'mineExpert', name: 'Mine Expert', emoji: '💣', description: 'Explosive expertise raises base damage.', maxLevel: 5 },
+    { id: 'autoLoader', name: 'Auto Loader', emoji: '🔩', description: 'Auto-loading decreases attack cooldown.', maxLevel: 5 },
+    { id: 'droneMatrix', name: 'Drone Matrix', emoji: '🛠️', description: 'Constructor matrix strengthens chassis.', maxLevel: 5 },
+  ],
 };
 
 // Server Setup
@@ -232,18 +291,127 @@ function scheduleBotRespawn() {
   }, BOT_RESPAWN_DELAY_MS);
 }
 
+function getPlayerSkillLevel(player, skillId) {
+  if (!player || !skillId) return 0;
+  return Number(player.skills && player.skills[skillId]) || 0;
+}
+
+function getSkillDefForPlayer(player, skillId) {
+  const classSkills = CLASS_SKILLS[player && player.classType] || [];
+  return classSkills.find((s) => s.id === skillId) || null;
+}
+
+function drawSkillChoices(player, count = 3) {
+  const classSkills = CLASS_SKILLS[player && player.classType] || [];
+  const available = classSkills.filter((skill) => getPlayerSkillLevel(player, skill.id) < skill.maxLevel);
+  if (available.length === 0) return [];
+
+  for (let i = available.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [available[i], available[j]] = [available[j], available[i]];
+  }
+
+  return available.slice(0, Math.min(count, available.length)).map((skill) => ({
+    id: skill.id,
+    name: skill.name,
+    emoji: skill.emoji,
+    description: skill.description,
+    maxLevel: skill.maxLevel,
+    currentLevel: getPlayerSkillLevel(player, skill.id),
+  }));
+}
+
+function getExpRequirementForLevel(level) {
+  const lv = Math.max(1, Number(level) || 1);
+  return Math.floor(BASE_EXP_REQUIREMENT * Math.pow(lv, 1.5));
+}
+
+function applySelectedSkillEffect(player, skillId) {
+  switch (skillId) {
+    case 'juggernaut':
+    case 'reinforcedPlating':
+    case 'guardianAura':
+    case 'blessedShell':
+    case 'astralLink':
+    case 'entropyField':
+    case 'droneMatrix':
+    case 'smokeVeil':
+    case 'sacredBloom':
+      player.maxHealth += 12;
+      player.currentHealth += 12;
+      break;
+    case 'executioner':
+    case 'marksmanFocus':
+    case 'arcaneOverflow':
+    case 'poisonEdge':
+    case 'spiritFangs':
+    case 'realityRend':
+    case 'mineExpert':
+      player.baseDamage += 2;
+      break;
+    case 'battleCry':
+    case 'backstabMastery':
+    case 'mirrorPain':
+    case 'eagleEye':
+    case 'voidPulse':
+      player.damageMultiplier += 0.07;
+      break;
+    case 'fortressStride':
+    case 'windrunner':
+    case 'swiftPrayer':
+    case 'shadowstep':
+    case 'wildGrowth':
+    case 'hexedMomentum':
+    case 'overclock':
+      player.speedMultiplier += 0.03;
+      break;
+    case 'quickdraw':
+    case 'autoLoader':
+      player.attackCooldown = Math.max(120, player.attackCooldown - 20);
+      break;
+    default:
+      break;
+  }
+  if (player.currentHealth > player.maxHealth) player.currentHealth = player.maxHealth;
+}
+
+function beginSkillChoiceIfNeeded(player) {
+  if (!player || player.permaDead) return;
+  if (player.isChoosingSkill) return;
+  if ((player.pendingSkillChoices || 0) <= 0) return;
+
+  const choices = drawSkillChoices(player, 3);
+  player.pendingSkillChoices -= 1;
+  if (!choices.length) {
+    player.isChoosingSkill = false;
+    player.currentSkillChoices = [];
+    return;
+  }
+
+  player.isChoosingSkill = true;
+  player.currentSkillChoices = choices.map((choice) => choice.id);
+  io.to(player.id).emit('skillChoices', choices);
+}
+
 function grantExp(player, amount) {
   if (!player || player.permaDead || amount <= 0) return;
+  if (!Number.isFinite(player.maxExp) || player.maxExp <= 0) {
+    player.maxExp = getExpRequirementForLevel(player.level);
+  }
   player.exp += amount;
-  while (player.exp >= EXP_PER_LEVEL) {
-    player.exp -= EXP_PER_LEVEL;
+  while (player.exp >= player.maxExp) {
+    player.exp -= player.maxExp;
     player.level += 1;
     player.scale += SCALE_PER_LEVEL;
-    player.skillPoints += 1;
     player.maxHealth += 10;
-    player.currentHealth = player.maxHealth;
+    player.currentHealth += 10;
+    player.baseDamage += 2;
+    player.maxExp = getExpRequirementForLevel(player.level);
+    player.pendingSkillChoices = (player.pendingSkillChoices || 0) + 1;
   }
+  if (player.currentHealth > player.maxHealth) player.currentHealth = player.maxHealth;
   player.y = 0.5 * player.scale;
+  beginSkillChoiceIfNeeded(player);
 }
 
 function applyBotDamage(bot, damage, attackerId) {
@@ -271,10 +439,11 @@ function areBotsHostile(botA, botB) {
 
 function getProjectileDamage(proj) {
   if (!proj) return 0;
-  if (proj.kind === 'mine') return 20 * (proj.ownerDamageMult || 1);
-  if (proj.kind === 'summoner_homing') return 13 * (proj.ownerDamageMult || 1);
+  const ownerBaseDamage = Number(proj.ownerBaseDamage) || RANGED_DAMAGE;
+  if (proj.kind === 'mine') return Math.max(20, ownerBaseDamage * 1.25) * (proj.ownerDamageMult || 1);
+  if (proj.kind === 'summoner_homing') return ownerBaseDamage * (proj.ownerDamageMult || 1);
   if (proj.kind === 'turret_shot') return 14 * (proj.ownerDamageMult || 1);
-  return RANGED_DAMAGE * (proj.ownerDamageMult || 1);
+  return ownerBaseDamage * (proj.ownerDamageMult || 1);
 }
 
 function getNearestEnemyForTeam(x, z, team, includeStealthed = false) {
@@ -388,10 +557,15 @@ function resetPlayer(p) {
   const classDef = CLASS_DEFS[p.classType] || CLASS_DEFS.warrior;
   const spawn = getSpawnPos(p.team);
   p.x = spawn.x; p.y = 0.5; p.z = spawn.z;
-  p.exp = 0; p.level = 1; p.scale = 1; p.permaDead = false; p.lastAttackerId = null;
+  p.exp = 0; p.level = 1; p.maxExp = BASE_EXP_REQUIREMENT; p.scale = 1; p.permaDead = false; p.lastAttackerId = null;
   p.maxHealth = classDef.maxHealth; p.currentHealth = classDef.maxHealth;
   p.maxMana = classDef.maxMana; p.currentMana = classDef.maxMana;
-  p.skillPoints = 0; p.skills = { damage: 0, health: 0, speed: 0 }; p.damageMultiplier = classDef.damageMultiplier;
+  p.baseDamage = classDef.baseDamage;
+  p.skills = {};
+  p.pendingSkillChoices = 0;
+  p.currentSkillChoices = [];
+  p.isChoosingSkill = false;
+  p.damageMultiplier = classDef.damageMultiplier;
   p.isStunned = false; p.isInvincible = false; p.lastUltimateTime = 0;
   p.isStealthed = false; p.lastCombatActionTime = 0;
   p.isConfused = false; p.confusedUntil = 0; p.speedBuffUntil = 0;
@@ -413,11 +587,12 @@ io.on('connection', (socket) => {
     players[socket.id] = {
       id: socket.id, username, x: spawn.x, y: 0.5, z: spawn.z, color: getTeamColor(team),
       team, classType, type: classDef.type, input: { dirX: 0, dirZ: 0 }, rotY: 0,
-      exp: 0, level: 1, scale: 1, permaDead: false,
+      exp: 0, level: 1, maxExp: BASE_EXP_REQUIREMENT, scale: 1, permaDead: false,
       maxHealth: classDef.maxHealth, currentHealth: classDef.currentHealth,
       maxMana: classDef.maxMana, currentMana: classDef.currentMana,
+      baseDamage: classDef.baseDamage,
       speedMultiplier: classDef.speedMultiplier, attackCooldown: classDef.attackCooldown, lastAttackTime: 0,
-      skillPoints: 0, skills: { damage: 0, health: 0, speed: 0 }, damageMultiplier: classDef.damageMultiplier,
+      skills: {}, pendingSkillChoices: 0, currentSkillChoices: [], isChoosingSkill: false, damageMultiplier: classDef.damageMultiplier,
       lastAttackerId: null, isStunned: false, isInvincible: false, lastUltimateTime: 0,
       isStealthed: false, lastCombatActionTime: 0,
       isConfused: false, confusedUntil: 0, speedBuffUntil: 0
@@ -426,24 +601,37 @@ io.on('connection', (socket) => {
     console.log(`[JOIN] ${username} joined team ${team} as ${classType}`);
   });
 
-  socket.on('upgradeSkill', (skillName) => {
-    const p = players[socket.id];
-    if (!p || p.permaDead || p.skillPoints <= 0) return;
-    if (['damage', 'health', 'speed'].includes(skillName)) {
-      p.skillPoints -= 1;
-      p.skills[skillName] += 1;
-      if (skillName === 'damage') { p.damageMultiplier += 0.2; }
-      else if (skillName === 'health') { p.maxHealth += 20; p.currentHealth += 20; }
-      else if (skillName === 'speed') { p.speedMultiplier += 0.1; }
-    }
-  });
-
   socket.on('sendChat', (text) => {
     io.emit('socialEvent', { type: 'chat', playerId: socket.id, text });
   });
 
   socket.on('sendEmote', (emoteId) => {
     io.emit('socialEvent', { type: 'emote', playerId: socket.id, emoteId });
+  });
+
+  socket.on('selectSkill', (skillId) => {
+    const p = players[socket.id];
+    if (!p || p.permaDead || !p.isChoosingSkill) return;
+
+    const selectedId = String(skillId || '');
+    if (!p.currentSkillChoices || !p.currentSkillChoices.includes(selectedId)) return;
+
+    const skillDef = getSkillDefForPlayer(p, selectedId);
+    if (!skillDef) return;
+
+    const currentLevel = getPlayerSkillLevel(p, selectedId);
+    if (currentLevel >= skillDef.maxLevel) {
+      p.isChoosingSkill = false;
+      p.currentSkillChoices = [];
+      beginSkillChoiceIfNeeded(p);
+      return;
+    }
+
+    p.skills[selectedId] = currentLevel + 1;
+    applySelectedSkillEffect(p, selectedId);
+    p.isChoosingSkill = false;
+    p.currentSkillChoices = [];
+    beginSkillChoiceIfNeeded(p);
   });
 
   socket.on('moveIntent', (data) => {
@@ -479,7 +667,7 @@ io.on('connection', (socket) => {
         if (enemy.team === p.team || enemy.permaDead || enemy.isInvincible) continue;
         const dX = enemy.x - p.x; const dZ = enemy.z - p.z;
         if (dX*dX + dZ*dZ <= 15*15) {
-          const dmg = 50 * p.damageMultiplier;
+          const dmg = Math.max(40, p.baseDamage * 2.5) * p.damageMultiplier;
           enemy.currentHealth -= dmg;
           enemy.lastAttackerId = socket.id;
           enemy.isStunned = true;
@@ -491,7 +679,7 @@ io.on('connection', (socket) => {
         const dX = bot.x - p.x;
         const dZ = bot.z - p.z;
         if (dX * dX + dZ * dZ <= 15 * 15) {
-          const dmg = 50 * p.damageMultiplier;
+          const dmg = Math.max(40, p.baseDamage * 2.5) * p.damageMultiplier;
           applyBotDamage(bot, dmg, socket.id);
         }
       }
@@ -651,7 +839,7 @@ io.on('connection', (socket) => {
         if (eDist > MELEE_RANGE * p.scale || eDist === 0) continue;
         const dot = (edx * dirX + edz * dirZ) / eDist;
         if (Math.acos(Math.max(-1, Math.min(1, dot))) <= MELEE_ARC / 2) {
-          const dmg = MELEE_DAMAGE * p.damageMultiplier;
+          const dmg = p.baseDamage * p.damageMultiplier;
           enemy.currentHealth -= dmg;
           enemy.lastAttackerId = socket.id;
           io.emit('combatEvent', { type: 'damage', x: enemy.x, z: enemy.z, amount: Math.round(dmg), color: enemy.color });
@@ -664,7 +852,7 @@ io.on('connection', (socket) => {
         if (bDist > MELEE_RANGE * p.scale || bDist === 0) continue;
         const dot = (bdx * dirX + bdz * dirZ) / bDist;
         if (Math.acos(Math.max(-1, Math.min(1, dot))) <= MELEE_ARC / 2) {
-          const dmg = MELEE_DAMAGE * p.damageMultiplier;
+          const dmg = p.baseDamage * p.damageMultiplier;
           applyBotDamage(bot, dmg, socket.id);
         }
       }
@@ -687,16 +875,19 @@ io.on('connection', (socket) => {
       if (p.classType === 'engineer') {
         projectiles[projId] = {
           id: projId, kind: 'mine', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerDamageMult: p.damageMultiplier,
+          ownerBaseDamage: p.baseDamage,
           x: p.x, z: p.z, vx: 0, vz: 0, life: ENGINEER_MINE_LIFESPAN,
         };
       } else if (p.classType === 'summoner') {
         projectiles[projId] = {
           id: projId, kind: 'summoner_homing', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerDamageMult: p.damageMultiplier,
+          ownerBaseDamage: p.baseDamage,
           x: p.x, z: p.z, vx: dirX * PROJECTILE_SPEED * 0.75, vz: dirZ * PROJECTILE_SPEED * 0.75, life: 2.0,
         };
       } else {
         projectiles[projId] = {
           id: projId, kind: 'normal', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerDamageMult: p.damageMultiplier,
+          ownerBaseDamage: p.baseDamage,
           x: p.x, z: p.z, vx: dirX * PROJECTILE_SPEED, vz: dirZ * PROJECTILE_SPEED, life: PROJECTILE_LIFESPAN,
         };
       }
@@ -1005,7 +1196,14 @@ setInterval(() => {
       p.lastAttackerId = null;
 
       if (bases[p.team] && bases[p.team].currentHealth > 0) resetPlayer(p);
-      else { p.currentHealth = 0; p.permaDead = true; p.input = { dirX: 0, dirZ: 0 }; }
+      else {
+        p.currentHealth = 0;
+        p.permaDead = true;
+        p.input = { dirX: 0, dirZ: 0 };
+        p.isChoosingSkill = false;
+        p.currentSkillChoices = [];
+        p.pendingSkillChoices = 0;
+      }
     }
   }
 
@@ -1047,9 +1245,10 @@ setInterval(() => {
     const p = players[id];
     playerSnapshot[id] = {
       id: p.id, username: p.username, x: p.x, y: p.y, z: p.z, color: p.color, team: p.team, type: p.type, classType: p.classType,
-      exp: p.exp, level: p.level, maxHealth: p.maxHealth, currentHealth: p.currentHealth,
-      scale: p.scale, permaDead: p.permaDead, skillPoints: p.skillPoints, isStunned: p.isStunned, isInvincible: p.isInvincible,
-      isStealthed: p.isStealthed, isConfused: p.isConfused, rotY: p.rotY
+      exp: p.exp, maxExp: p.maxExp, level: p.level, maxHealth: p.maxHealth, currentHealth: p.currentHealth,
+      scale: p.scale, permaDead: p.permaDead, isStunned: p.isStunned, isInvincible: p.isInvincible,
+      isStealthed: p.isStealthed, isConfused: p.isConfused, isChoosingSkill: !!p.isChoosingSkill,
+      skills: { ...(p.skills || {}) }, rotY: p.rotY
     };
   }
 

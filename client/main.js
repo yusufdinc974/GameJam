@@ -139,6 +139,66 @@ function buildEnvironmentGeometry(walls, stealthZones) {
 const playerMeshes = {};
 const nametagsContainer = document.getElementById('nametags-container');
 const nametags = {};
+const skillSpikeGeometry = new THREE.TetrahedronGeometry(0.12, 0);
+const skillSpikeMaterial = new THREE.MeshStandardMaterial({
+  color: 0xc9d4de,
+  emissive: new THREE.Color(0x7f8c99),
+  emissiveIntensity: 0.3,
+  roughness: 0.3,
+  metalness: 0.85,
+});
+
+function ensureSkillSpikes(mesh) {
+  if (mesh.userData.skillSpikes) return mesh.userData.skillSpikes;
+  const spikes = [];
+  const count = 10;
+  for (let i = 0; i < count; i++) {
+    const spike = new THREE.Mesh(skillSpikeGeometry, skillSpikeMaterial);
+    const phi = Math.acos(1 - 2 * ((i + 0.5) / count));
+    const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+    const dir = new THREE.Vector3(
+      Math.cos(theta) * Math.sin(phi),
+      Math.cos(phi),
+      Math.sin(theta) * Math.sin(phi),
+    );
+    spike.position.copy(dir.multiplyScalar(0.95));
+    spike.lookAt(spike.position.clone().multiplyScalar(1.6));
+    spike.visible = false;
+    mesh.add(spike);
+    spikes.push(spike);
+  }
+  mesh.userData.skillSpikes = spikes;
+  return spikes;
+}
+
+function setSkillSpikeVisibility(mesh, enabled, level) {
+  if (!enabled && !mesh.userData.skillSpikes) return;
+  const spikes = ensureSkillSpikes(mesh);
+  const scale = 0.35 + Math.min(5, Math.max(0, level)) * 0.06;
+  for (const spike of spikes) {
+    spike.visible = enabled;
+    if (enabled) spike.scale.setScalar(scale);
+  }
+}
+
+function applySkillVFX(mesh, playerState) {
+  const skills = (playerState && playerState.skills) || {};
+  const juggernautLevel = Number(skills.juggernaut || skills.reinforcedPlating || skills.sacredBloom || 0);
+  const spikeLevel = Number(skills.spikyArmor || 0);
+  const arcaneLevel = Number(skills.arcaneOverflow || skills.warpedMind || 0);
+  const isStealthed = !!(playerState && playerState.isStealthed);
+
+  let scaleMultiplier = 1 + Math.min(5, Math.max(0, juggernautLevel)) * 0.08;
+  if (!Number.isFinite(scaleMultiplier) || scaleMultiplier < 1) scaleMultiplier = 1;
+
+  setSkillSpikeVisibility(mesh, spikeLevel > 0 && !isStealthed, spikeLevel);
+
+  if (arcaneLevel > 0 && mesh.material) {
+    mesh.material.emissiveIntensity += Math.min(0.3, arcaneLevel * 0.05);
+  }
+
+  return scaleMultiplier;
+}
 
 function createPlayerMesh(id, data) {
   const type = data.type || 'cube';
@@ -168,7 +228,7 @@ function createPlayerMesh(id, data) {
   playerMeshes[id] = {
     mesh, targetPos: new THREE.Vector3(data.x, data.y, data.z),
     targetScale: s, targetRotY: data.rotY || 0,
-    currentType: type, team: data.team, isStealthed: false,
+    currentType: type, team: data.team, isStealthed: false, skillScaleMultiplier: 1,
   };
 }
 
@@ -371,7 +431,6 @@ function spawnParticle(x, z, colorStr) {
 
 // ── DOM Elements ────────────────────────────────────────────────────────────
 const minimapCanvas = document.getElementById('minimap');
-const hudSkills = document.getElementById('hud-skills');
 const hudLeaderboard = document.getElementById('hud-leaderboard');
 const leaderboardList = document.getElementById('leaderboard-list');
 const damageContainer = document.getElementById('damage-container');
@@ -381,6 +440,12 @@ const socialContainer = document.getElementById('social-container');
 const helpButton = document.getElementById('help-button');
 const howToModal = document.getElementById('howto-modal');
 const howToClose = document.getElementById('howto-close');
+const skillCardOverlay = document.getElementById('skill-card-overlay');
+const skillCardButtons = [
+  document.getElementById('skill-card-0'),
+  document.getElementById('skill-card-1'),
+  document.getElementById('skill-card-2'),
+];
 
 const hudUltimate = document.getElementById('hud-ultimate');
 const hudUltimateFill = document.getElementById('hud-ultimate-fill');
@@ -394,8 +459,11 @@ let lastUltTime = 0;
 const ultimateVFX = [];
 const bhParticles = [];
 let isHowToOpen = false;
+let isSkillCardOpen = false;
+let currentSkillOptions = [];
 
 function setHowToOpen(open) {
+  if (open && isSkillCardOpen) return;
   isHowToOpen = !!open;
   if (howToModal) howToModal.style.display = isHowToOpen ? 'block' : 'none';
   if (isHowToOpen) {
@@ -409,10 +477,75 @@ function setHowToOpen(open) {
   }
 }
 
+function setSkillCardOpen(open) {
+  isSkillCardOpen = !!open;
+  if (skillCardOverlay) {
+    skillCardOverlay.classList.toggle('visible', isSkillCardOpen);
+  }
+  if (isSkillCardOpen) {
+    setHowToOpen(false);
+  }
+}
+
+function renderSkillCards(choices) {
+  currentSkillOptions = [null, null, null];
+  if (!Array.isArray(choices)) choices = [];
+  for (let i = 0; i < skillCardButtons.length; i++) {
+    const btn = skillCardButtons[i];
+    if (!btn) continue;
+    const choice = choices[i];
+    if (!choice) {
+      btn.style.display = 'none';
+      btn.dataset.skillId = '';
+      btn.dataset.skillIndex = String(i);
+      continue;
+    }
+    currentSkillOptions[i] = String(choice.id || '');
+    btn.style.display = 'flex';
+    btn.dataset.skillId = String(choice.id || '');
+    btn.dataset.skillIndex = String(i);
+    const emojiEl = btn.querySelector('[data-role=\"emoji\"]');
+    const nameEl = btn.querySelector('[data-role=\"name\"]');
+    const levelEl = btn.querySelector('[data-role=\"level\"]');
+    const descEl = btn.querySelector('[data-role=\"desc\"]');
+    if (emojiEl) emojiEl.textContent = choice.emoji || '✨';
+    if (nameEl) nameEl.textContent = choice.name || 'Unknown Skill';
+    const currentLevel = Number(choice.currentLevel) || 0;
+    const maxLevel = Math.max(1, Number(choice.maxLevel) || 1);
+    const nextLevel = Math.min(maxLevel, currentLevel + 1);
+    if (levelEl) levelEl.textContent = `Level ${currentLevel} -> ${nextLevel}`;
+    if (descEl) descEl.textContent = choice.description || '';
+  }
+}
+
+function clearSkillChoicesUI() {
+  currentSkillOptions = [];
+  setSkillCardOpen(false);
+}
+
+function submitSkillChoiceByIndex(index) {
+  if (index < 0 || index > 2) return false;
+  const skillId = currentSkillOptions[index];
+  if (!skillId) return false;
+  socket.emit('selectSkill', skillId);
+  clearSkillChoicesUI();
+  return true;
+}
+
+skillCardButtons.forEach((btn, index) => {
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    submitSkillChoiceByIndex(index);
+  });
+});
+
 if (helpButton) {
   helpButton.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isSkillCardOpen) return;
     setHowToOpen(true);
   });
 }
@@ -447,6 +580,16 @@ const shakeDecay = 0.9;
 socket.on('initMap', (mapData) => {
   if (!mapData) return;
   buildEnvironmentGeometry(mapData.walls, mapData.stealthZones);
+});
+
+socket.on('skillChoices', (choices) => {
+  if (!inGame) return;
+  renderSkillCards(choices);
+  if (currentSkillOptions.some((id) => !!id)) {
+    setSkillCardOpen(true);
+  } else {
+    clearSkillChoicesUI();
+  }
 });
 
 socket.on('ultimateCast', (data) => {
@@ -665,8 +808,10 @@ socket.on('stateUpdate', (state) => {
       tagEl.style.display = hideEnemyUi ? 'none' : 'block';
     }
 
+    const skillScaleMultiplier = applySkillVFX(entry.mesh, data);
+    entry.skillScaleMultiplier = skillScaleMultiplier;
     entry.targetPos.set(data.x, data.y, data.z);
-    entry.targetScale = data.scale || 1;
+    entry.targetScale = (data.scale || 1) * skillScaleMultiplier;
     entry.targetRotY = data.rotY || 0;
   }
   for (const id in playerMeshes) { if (!activePlayerIds.has(id)) removePlayerMesh(id); }
@@ -818,9 +963,9 @@ socket.on('stateUpdate', (state) => {
     hudLeaderboard.classList.add('visible');
     const playersArr = Object.values(playerData).filter(p => !p.permaDead);
     playersArr.sort((a, b) => {
-      const xpA = (a.level * 5) + a.exp;
-      const xpB = (b.level * 5) + b.exp;
-      return xpB - xpA;
+      const progressA = (Number(a.level) || 0) + (Number(a.exp) || 0) / Math.max(1, Number(a.maxExp) || 1);
+      const progressB = (Number(b.level) || 0) + (Number(b.exp) || 0) / Math.max(1, Number(b.maxExp) || 1);
+      return progressB - progressA;
     });
 
     leaderboardList.innerHTML = '';
@@ -847,11 +992,14 @@ socket.on('stateUpdate', (state) => {
 
     hudHpBar.style.width  = `${(me.currentHealth / me.maxHealth) * 100}%`;
     hudHpText.textContent = `${Math.round(me.currentHealth)} / ${me.maxHealth}`;
-    hudExpBar.style.width = `${(me.exp / 5) * 100}%`;
-    hudExpText.textContent= `${me.exp} / 5`;
+    const expNow = Math.max(0, Math.floor(Number(me.exp) || 0));
+    const expReq = Math.max(1, Math.floor(Number(me.maxExp) || 100));
+    hudExpBar.style.width = `${Math.max(0, Math.min(1, expNow / expReq)) * 100}%`;
+    hudExpText.textContent = `${expNow} / ${expReq}`;
 
-    if (me.skillPoints > 0) hudSkills.style.display = 'block';
-    else hudSkills.style.display = 'none';
+    if (!me.isChoosingSkill && isSkillCardOpen) clearSkillChoicesUI();
+  } else if (isSkillCardOpen) {
+    clearSkillChoicesUI();
   }
 });
 
@@ -945,6 +1093,20 @@ window.addEventListener('keydown', (e) => {
 
   if (isTyping) return;
 
+  if (e.shiftKey && EMOTES[e.key]) {
+      socket.emit('sendEmote', e.key);
+      e.preventDefault();
+      return;
+  }
+
+  if (!e.shiftKey && currentSkillOptions.length > 0 && (e.key === '1' || e.key === '2' || e.key === '3')) {
+    const selectedIndex = Number(e.key) - 1;
+    if (submitSkillChoiceByIndex(selectedIndex)) {
+      e.preventDefault();
+      return;
+    }
+  }
+
   if (e.code === 'Space') {
     e.preventDefault();
     const now = Date.now();
@@ -957,18 +1119,8 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (e.shiftKey && EMOTES[e.key]) {
-      socket.emit('sendEmote', e.key);
-      e.preventDefault();
-      return;
-  }
-
   const key = KEY_MAP[e.code];
   if (key && !keys[key]) { keys[key] = true; emitMoveIntent(); }
-
-  if (e.key === '1' && !e.shiftKey) socket.emit('upgradeSkill', 'damage');
-  else if (e.key === '2' && !e.shiftKey) socket.emit('upgradeSkill', 'health');
-  else if (e.key === '3' && !e.shiftKey) socket.emit('upgradeSkill', 'speed');
 });
 
 window.addEventListener('keyup', (e) => {
@@ -983,7 +1135,6 @@ window.addEventListener('click', (e) => {
     isTyping ||
     isHowToOpen ||
     e.target.tagName === 'INPUT' ||
-    e.target.closest('#hud-skills') ||
     e.target.closest('#howto-modal') ||
     e.target.closest('#help-button')
   ) return;
@@ -1005,6 +1156,7 @@ function joinGame(classType) {
     lobbyInput.style.borderColor = '#e74c3c';
     lobbyInput.focus(); return;
   }
+  clearSkillChoicesUI();
   socket.emit('joinGame', { classType, username: val });
   lobbyEl.classList.add('hidden');
   hudStats.classList.add('visible'); hudBasesEl.classList.add('visible');
