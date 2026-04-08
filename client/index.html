@@ -40,6 +40,10 @@
       .class-card.archer .role   { color: #3498db; } .class-card.archer:hover   { border-color: rgba(52,152,219,0.4); box-shadow: 0 12px 40px rgba(52,152,219,0.15); }
       .class-card.mage .role   { color: #9b59b6; } .class-card.mage:hover   { border-color: rgba(155,89,182,0.4); box-shadow: 0 12px 40px rgba(155,89,182,0.15); }
       .class-card.priest .role   { color: #f1c40f; } .class-card.priest:hover   { border-color: rgba(241,196,15,0.4); box-shadow: 0 12px 40px rgba(241,196,15,0.15); }
+      .class-card.assassin .role { color: #95a5a6; } .class-card.assassin:hover { border-color: rgba(149,165,166,0.5); box-shadow: 0 12px 40px rgba(149,165,166,0.22); }
+      .class-card.summoner .role { color: #2ecc71; } .class-card.summoner:hover { border-color: rgba(46,204,113,0.45); box-shadow: 0 12px 40px rgba(46,204,113,0.2); }
+      .class-card.chaos .role    { color: #bb6bd9; } .class-card.chaos:hover    { border-color: rgba(187,107,217,0.5); box-shadow: 0 12px 40px rgba(187,107,217,0.22); }
+      .class-card.engineer .role { color: #f39c12; } .class-card.engineer:hover { border-color: rgba(243,156,18,0.5); box-shadow: 0 12px 40px rgba(243,156,18,0.22); }
 
       /* ── BASE HEALTH UI ── */
       #hud-bases { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 12; pointer-events: none; display: flex; gap: 20px; opacity: 0; transition: opacity 0.4s ease; }
@@ -162,6 +166,55 @@
       #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; border-radius: 1px; }
       #crosshair::before { width: 2px; height: 20px; left: 9px; top: 0; }
       #crosshair::after  { width: 20px; height: 2px; top: 9px; left: 0; }
+
+      /* HOW TO PLAY */
+      #help-button {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 100;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: 2px solid rgba(255,255,255,0.6);
+        background: rgba(0,0,0,0.55);
+        color: #fff;
+        font-size: 22px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      #howto-modal {
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 101;
+        background: rgba(0,0,0,0.9);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        max-width: 600px;
+        max-height: 80vh;
+        overflow-y: auto;
+        border: 1px solid rgba(255,255,255,0.18);
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      }
+      #howto-modal h2 { margin-bottom: 12px; font-size: 28px; letter-spacing: 0.04em; }
+      #howto-modal h3 { margin-top: 14px; margin-bottom: 8px; font-size: 16px; color: #9de6ff; }
+      #howto-modal p, #howto-modal li { font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.9); }
+      #howto-modal ul { margin-left: 18px; }
+      #howto-close {
+        margin-top: 16px;
+        width: 100%;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-weight: bold;
+        cursor: pointer;
+        background: #2ecc71;
+        color: #062110;
+      }
     </style>
   </head>
   <body>
@@ -170,6 +223,33 @@
     <div id="damage-container"></div>
     <div id="social-container"></div>
     <input id="chat-input" type="text" placeholder="Press Enter to chat..." autocomplete="off" />
+
+    <button id="help-button" type="button">?</button>
+    <div id="howto-modal">
+      <h2>How to Play</h2>
+      <h3>Controls</h3>
+      <ul>
+        <li>WASD to move</li>
+        <li>Mouse to aim and click to attack</li>
+        <li>SPACEBAR for Ultimate</li>
+        <li>Shift+1 / Shift+2 / Shift+3 for Emotes</li>
+        <li>Enter to Chat</li>
+      </ul>
+      <h3>Objective</h3>
+      <p>Destroy the enemy base, eat orbs to level up, and upgrade stats!</p>
+      <h3>The Roster</h3>
+      <ul>
+        <li>Warrior (150 HP): AoE Stun</li>
+        <li>Archer (80 HP): Piercing Laser</li>
+        <li>Mage (90 HP): Black Hole Pull</li>
+        <li>Priest (120 HP): AoE Burst Heal</li>
+        <li>Assassin (70 HP): Teleport to Enemy</li>
+        <li>Summoner (100 HP): Spawn AI Minions</li>
+        <li>Chaos Witch (90 HP): Reverse Enemy Controls</li>
+        <li>Engineer (120 HP): Deploy Auto-Turret</li>
+      </ul>
+      <button id="howto-close" type="button">Close</button>
+    </div>
 
     <!-- LOBBY -->
     <div id="lobby">
@@ -202,6 +282,30 @@
           <div class="name">Priest</div>
           <div class="role">SUPPORT RANGED</div>
           <div class="desc">120 HP · Fast & light<br>Rapid low-damage shots<br>Click anywhere to fire</div>
+        </div>
+        <div class="class-card assassin" id="btn-assassin">
+          <div class="icon">🥷</div>
+          <div class="name">🥷 Assassin (Teleport &amp; Speed)</div>
+          <div class="role">TELEPORT SPEED</div>
+          <div class="desc">Octahedron body<br>Blinks behind enemies<br>Ultimate grants speed surge</div>
+        </div>
+        <div class="class-card summoner" id="btn-summoner">
+          <div class="icon">🔮</div>
+          <div class="name">🔮 Summoner (Pet Minions)</div>
+          <div class="role">PET MINIONS</div>
+          <div class="desc">Hexagon body<br>Homing basic projectiles<br>Ultimate summons 3 pets</div>
+        </div>
+        <div class="class-card chaos" id="btn-chaos">
+          <div class="icon">🌀</div>
+          <div class="name">🌀 Chaos Witch (Reality Warp)</div>
+          <div class="role">REALITY WARP</div>
+          <div class="desc">Dodecahedron body<br>Inverts enemy controls<br>Area distortion ultimate</div>
+        </div>
+        <div class="class-card engineer" id="btn-engineer">
+          <div class="icon">🛠️</div>
+          <div class="name">🛠️ Engineer (Traps &amp; Turrets)</div>
+          <div class="role">TRAPS TURRETS</div>
+          <div class="desc">Cylinder body<br>Plants mine basic attacks<br>Ultimate deploys turret</div>
         </div>
       </div>
     </div>

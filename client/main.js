@@ -4,8 +4,9 @@ import { io } from 'socket.io-client';
 // ── Config ──────────────────────────────────────────────────────────────────
 const SERVER_URL = 'http://localhost:3000';
 const LERP_FACTOR = 0.15;
-const FLOOR_SIZE = 200;
+const FLOOR_SIZE = 400;
 const GRID_DIVISIONS = 200;
+const WORLD_BOUNDARY = FLOOR_SIZE / 2;
 
 // ── Game State ──────────────────────────────────────────────────────────────
 let myId = null;
@@ -64,12 +65,75 @@ const geoCache = {
   pyramid:     new THREE.ConeGeometry(0.6, 1, 4),
   icosahedron: new THREE.IcosahedronGeometry(0.7, 0),
   torus:       new THREE.TorusGeometry(0.5, 0.25, 8, 16),
+  octahedron:  new THREE.OctahedronGeometry(0.72, 0),
+  hexagon:     new THREE.CylinderGeometry(0.62, 0.62, 1, 6),
+  dodecahedron:new THREE.DodecahedronGeometry(0.68, 0),
+  cylinder:    new THREE.CylinderGeometry(0.58, 0.58, 1, 14),
 };
 
 const TEAM_COLORS = {
   red:  new THREE.Color(0xff4444),
   blue: new THREE.Color(0x4488ff),
 };
+
+const mapState = { walls: [], stealthZones: [] };
+const wallMeshes = [];
+const stealthZoneMeshes = [];
+const wallMaterial = new THREE.MeshStandardMaterial({
+  color: 0x2a2f36,
+  roughness: 0.35,
+  metalness: 0.85,
+});
+const stealthZoneMaterial = new THREE.MeshStandardMaterial({
+  color: 0x113311,
+  roughness: 1.0,
+  metalness: 0.05,
+  transparent: true,
+  opacity: 0.3,
+  side: THREE.DoubleSide,
+  depthWrite: false,
+});
+
+function clearEnvironmentMeshes() {
+  while (wallMeshes.length > 0) {
+    const mesh = wallMeshes.pop();
+    scene.remove(mesh);
+    mesh.geometry.dispose();
+  }
+  while (stealthZoneMeshes.length > 0) {
+    const mesh = stealthZoneMeshes.pop();
+    scene.remove(mesh);
+    mesh.geometry.dispose();
+  }
+}
+
+function buildEnvironmentGeometry(walls, stealthZones) {
+  mapState.walls = Array.isArray(walls) ? walls : [];
+  mapState.stealthZones = Array.isArray(stealthZones) ? stealthZones : [];
+  clearEnvironmentMeshes();
+
+  for (const wall of mapState.walls) {
+    const width = Number(wall.width) || 1;
+    const depth = Number(wall.depth) || 1;
+    const geo = new THREE.BoxGeometry(width, 4, depth);
+    const mesh = new THREE.Mesh(geo, wallMaterial);
+    mesh.position.set(Number(wall.x) || 0, 2, Number(wall.z) || 0);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    wallMeshes.push(mesh);
+  }
+
+  for (const zone of mapState.stealthZones) {
+    const radius = Number(zone.radius) || 1;
+    const geo = new THREE.CylinderGeometry(radius, radius, 0.12, 36);
+    const mesh = new THREE.Mesh(geo, stealthZoneMaterial);
+    mesh.position.set(Number(zone.x) || 0, 0.06, Number(zone.z) || 0);
+    mesh.receiveShadow = false;
+    scene.add(mesh);
+    stealthZoneMeshes.push(mesh);
+  }
+}
 
 // ── Player Entity Management ────────────────────────────────────────────────
 const playerMeshes = {};
@@ -104,7 +168,7 @@ function createPlayerMesh(id, data) {
   playerMeshes[id] = {
     mesh, targetPos: new THREE.Vector3(data.x, data.y, data.z),
     targetScale: s, targetRotY: data.rotY || 0,
-    currentType: type, team: data.team,
+    currentType: type, team: data.team, isStealthed: false,
   };
 }
 
@@ -141,12 +205,21 @@ function removeOrbMesh(id) {
 const projMeshes = {};
 const projGeo = new THREE.SphereGeometry(0.15, 8, 8);
 function createProjMesh(id, data) {
+  if (data.visible === false || data.kind === 'mine') return;
+  const kind = data.kind || 'normal';
   const color = data.ownerColor || '#74b9ff';
-  const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(color), emissive: new THREE.Color(color), emissiveIntensity: 1.0, roughness: 0.1, metalness: 0.9 });
+  const emissiveBoost = kind === 'turret_shot' ? 0.65 : (kind === 'summoner_homing' ? 0.85 : 1.0);
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color),
+    emissive: new THREE.Color(color),
+    emissiveIntensity: emissiveBoost,
+    roughness: 0.1,
+    metalness: 0.9
+  });
   const mesh = new THREE.Mesh(projGeo, mat);
   mesh.position.set(data.x, 0.5, data.z);
   scene.add(mesh);
-  projMeshes[id] = { mesh, targetX: data.x, targetZ: data.z };
+  projMeshes[id] = { mesh, targetX: data.x, targetZ: data.z, kind };
 }
 function removeProjMesh(id) {
   const entry = projMeshes[id];
@@ -154,6 +227,103 @@ function removeProjMesh(id) {
 }
 
 // ── Base Entity Management ──────────────────────────────────────────────────
+const botMeshes = {};
+const botGeo = new THREE.OctahedronGeometry(1, 0);
+
+function createBotHealthUi() {
+  const root = document.createElement('div');
+  root.style.position = 'absolute';
+  root.style.width = '34px';
+  root.style.height = '6px';
+  root.style.background = 'rgba(0, 0, 0, 0.6)';
+  root.style.border = '1px solid rgba(255,255,255,0.15)';
+  root.style.borderRadius = '4px';
+  root.style.overflow = 'hidden';
+  root.style.transform = 'translate(-50%, -50%)';
+  root.style.pointerEvents = 'none';
+  root.style.opacity = '0';
+  root.style.transition = 'opacity 0.1s linear';
+
+  const fill = document.createElement('div');
+  fill.style.width = '100%';
+  fill.style.height = '100%';
+  fill.style.background = 'linear-gradient(90deg, #8a1f1f, #ff4b4b)';
+  fill.style.boxShadow = '0 0 4px rgba(255, 80, 80, 0.5)';
+  root.appendChild(fill);
+
+  nametagsContainer.appendChild(root);
+  return { root, fill };
+}
+
+function createBotMesh(id, data) {
+  const scale = Number(data.scale) || 1;
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0x8b8b8b),
+    roughness: 0.55,
+    metalness: 0.2,
+    emissive: new THREE.Color(0x3a3a3a),
+    emissiveIntensity: 0.25,
+  });
+  const mesh = new THREE.Mesh(botGeo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.position.set(Number(data.x) || 0, 0.8 * scale, Number(data.z) || 0);
+  mesh.scale.set(scale, scale, scale);
+  scene.add(mesh);
+
+  const healthUi = createBotHealthUi();
+  botMeshes[id] = {
+    mesh,
+    targetPos: new THREE.Vector3(Number(data.x) || 0, 0.8 * scale, Number(data.z) || 0),
+    targetScale: scale,
+    currentHealth: Number(data.currentHealth) || 0,
+    maxHealth: Number(data.maxHealth) || 1,
+    healthRoot: healthUi.root,
+    healthFill: healthUi.fill,
+  };
+}
+
+function removeBotMesh(id) {
+  const entry = botMeshes[id];
+  if (!entry) return;
+  scene.remove(entry.mesh);
+  entry.mesh.material.dispose();
+  if (entry.healthRoot) entry.healthRoot.remove();
+  delete botMeshes[id];
+}
+
+const turretMeshes = {};
+const turretGeo = new THREE.CylinderGeometry(0.5, 0.85, 1.2, 12);
+function createTurretMesh(id, data) {
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(data.color || '#f39c12'),
+    emissive: new THREE.Color(data.color || '#f39c12'),
+    emissiveIntensity: 0.35,
+    roughness: 0.35,
+    metalness: 0.65,
+  });
+  const mesh = new THREE.Mesh(turretGeo, mat);
+  const scale = Number(data.scale) || 1;
+  mesh.scale.set(scale, scale, scale);
+  mesh.position.set(Number(data.x) || 0, 0.8 * scale, Number(data.z) || 0);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  turretMeshes[id] = {
+    mesh,
+    targetPos: new THREE.Vector3(Number(data.x) || 0, 0.8 * scale, Number(data.z) || 0),
+    targetScale: scale,
+  };
+}
+
+function removeTurretMesh(id) {
+  const entry = turretMeshes[id];
+  if (!entry) return;
+  scene.remove(entry.mesh);
+  entry.mesh.material.dispose();
+  delete turretMeshes[id];
+}
+
 const baseMeshes = {};
 function createBaseMesh(teamKey, data) {
   const teamColor = TEAM_COLORS[teamKey];
@@ -208,6 +378,9 @@ const damageContainer = document.getElementById('damage-container');
 
 const chatInput = document.getElementById('chat-input');
 const socialContainer = document.getElementById('social-container');
+const helpButton = document.getElementById('help-button');
+const howToModal = document.getElementById('howto-modal');
+const howToClose = document.getElementById('howto-close');
 
 const hudUltimate = document.getElementById('hud-ultimate');
 const hudUltimateFill = document.getElementById('hud-ultimate-fill');
@@ -220,6 +393,37 @@ let ultCooldown = 15000;
 let lastUltTime = 0;
 const ultimateVFX = [];
 const bhParticles = [];
+let isHowToOpen = false;
+
+function setHowToOpen(open) {
+  isHowToOpen = !!open;
+  if (howToModal) howToModal.style.display = isHowToOpen ? 'block' : 'none';
+  if (isHowToOpen) {
+    if (isTyping) {
+      isTyping = false;
+      chatInput.classList.remove('active');
+      chatInput.blur();
+    }
+    for (const k in keys) keys[k] = false;
+    if (inGame) emitMoveIntent();
+  }
+}
+
+if (helpButton) {
+  helpButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHowToOpen(true);
+  });
+}
+
+if (howToClose) {
+  howToClose.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHowToOpen(false);
+  });
+}
 
 const hudUsernameHeader = document.getElementById('hud-username-header');
 const hudPlayers      = document.getElementById('hud-players');
@@ -240,6 +444,11 @@ let shakeIntensity = 0;
 const shakeDecay = 0.9;
 
 // ── Network Events ──────────────────────────────────────────────────────────
+socket.on('initMap', (mapData) => {
+  if (!mapData) return;
+  buildEnvironmentGeometry(mapData.walls, mapData.stealthZones);
+});
+
 socket.on('ultimateCast', (data) => {
   if (!inGame) return;
   shakeIntensity = Math.max(shakeIntensity, 1.0); // Heavy screen shake
@@ -279,12 +488,47 @@ socket.on('ultimateCast', (data) => {
     ultimateVFX.push({ mesh, type: 'mage', life: 3.0, maxLife: 3.0, tx: tX, tz: tZ });
   }
   else if (data.classType === 'priest') {
-    const geo = new THREE.SphereGeometry(20, 16, 16);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xf1c40f, wireframe: true, transparent: true, opacity: 0.5 });
+    const geo = new THREE.RingGeometry(0.5, 2.0, 48);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(originX, 0.5, originZ);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(originX, 0.12, originZ);
+    mesh.scale.set(0.3, 0.3, 0.3);
     scene.add(mesh);
-    ultimateVFX.push({ mesh, type: 'priest', life: 4.0, maxLife: 4.0, targetId: data.playerId });
+    ultimateVFX.push({ mesh, type: 'priestHealPulse', life: 1.0, maxLife: 1.0 });
+  } else if (data.classType === 'assassin') {
+    const smokeGeo = new THREE.SphereGeometry(1.8, 14, 14);
+    const smokeMat = new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.65 });
+    const smoke = new THREE.Mesh(smokeGeo, smokeMat);
+    smoke.position.set(originX, 0.7, originZ);
+    scene.add(smoke);
+    ultimateVFX.push({ mesh: smoke, type: 'assassinSmoke', life: 0.45, maxLife: 0.45 });
+
+    const flashGeo = new THREE.SphereGeometry(0.9, 14, 14);
+    const flashMat = new THREE.MeshBasicMaterial({ color: 0xf5f5ff, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending });
+    const flash = new THREE.Mesh(flashGeo, flashMat);
+    flash.position.set(tX, 0.9, tZ);
+    scene.add(flash);
+    ultimateVFX.push({ mesh: flash, type: 'assassinFlash', life: 0.22, maxLife: 0.22 });
+  } else if (data.classType === 'chaos') {
+    const geo = new THREE.SphereGeometry(1.2, 24, 24);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xb56cff, wireframe: true, transparent: true, opacity: 0.85 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(originX, 1.2, originZ);
+    scene.add(mesh);
+    ultimateVFX.push({ mesh, type: 'chaosWarp', life: 0.28, maxLife: 0.28 });
+  } else if (data.classType === 'summoner' || data.classType === 'engineer') {
+    const geo = new THREE.SphereGeometry(1.1, 16, 16);
+    const mat = new THREE.MeshBasicMaterial({
+      color: data.classType === 'summoner' ? 0x63e286 : 0xf5b041,
+      transparent: true,
+      opacity: 0.8,
+      wireframe: true,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(originX, 1.1, originZ);
+    scene.add(mesh);
+    ultimateVFX.push({ mesh, type: 'casterGlow', life: 0.55, maxLife: 0.55, targetId: data.playerId });
   }
 });
 
@@ -371,38 +615,59 @@ socket.on('combatEvent', (ev) => {
 });
 
 socket.on('stateUpdate', (state) => {
-  const { players: playerData, orbs: orbData, projectiles: projData, bases: baseData } = state;
+  const { players: playerData, orbs: orbData, projectiles: projData, bots: botData = [], turrets: turretData = [], bases: baseData } = state;
 
+  const myTeam = myId && playerData[myId] ? playerData[myId].team : null;
   const activePlayerIds = new Set(Object.keys(playerData));
   for (const id in playerData) {
     const data = playerData[id];
-    if (data.permaDead) { if (playerMeshes[id]) removePlayerMesh(id); continue; }
-    if (!playerMeshes[id]) { createPlayerMesh(id, data); }
-    else {
-      const entry = playerMeshes[id];
-      if (entry.currentType !== (data.type || 'cube') || entry.team !== data.team) {
-        removePlayerMesh(id); createPlayerMesh(id, data);
-      } else if (nametags[id]) {
-        nametags[id].textContent = data.username;
-      }
-      
-      if (data.isInvincible) {
-         entry.mesh.material.emissiveIntensity = 1.0;
-         entry.mesh.material.emissive = new THREE.Color(0xf1c40f);
-      } else if (data.isStunned) {
-         entry.mesh.material.emissiveIntensity = 0.8;
-         entry.mesh.material.emissive = new THREE.Color(0x9b59b6);
-      } else {
-         const tC = TEAM_COLORS[data.team] || new THREE.Color(0xffffff);
-         entry.mesh.material.emissiveIntensity = 0.2;
-         entry.mesh.material.emissive = tC;
+    if (data.permaDead) {
+      if (playerMeshes[id]) removePlayerMesh(id);
+      continue;
+    }
+
+    if (!playerMeshes[id]) {
+      createPlayerMesh(id, data);
+    } else {
+      const existing = playerMeshes[id];
+      if (existing.currentType !== (data.type || 'cube') || existing.team !== data.team) {
+        removePlayerMesh(id);
+        createPlayerMesh(id, data);
       }
     }
-    if (playerMeshes[id]) {
-      playerMeshes[id].targetPos.set(data.x, data.y, data.z);
-      playerMeshes[id].targetScale = data.scale || 1;
-      playerMeshes[id].targetRotY = data.rotY || 0;
+
+    const entry = playerMeshes[id];
+    if (!entry) continue;
+
+    if (nametags[id]) nametags[id].textContent = data.username;
+
+    if (data.isInvincible) {
+      entry.mesh.material.emissiveIntensity = 1.0;
+      entry.mesh.material.emissive = new THREE.Color(0xf1c40f);
+    } else if (data.isStunned) {
+      entry.mesh.material.emissiveIntensity = 0.8;
+      entry.mesh.material.emissive = new THREE.Color(0x9b59b6);
+    } else {
+      const tC = TEAM_COLORS[data.team] || new THREE.Color(0xffffff);
+      entry.mesh.material.emissiveIntensity = 0.2;
+      entry.mesh.material.emissive = tC;
     }
+
+    const isStealthed = !!data.isStealthed;
+    entry.isStealthed = isStealthed;
+    entry.mesh.material.transparent = isStealthed;
+    entry.mesh.material.opacity = isStealthed ? 0.15 : 1.0;
+    entry.mesh.material.depthWrite = !isStealthed;
+
+    const tagEl = nametags[id];
+    if (tagEl) {
+      const hideEnemyUi = Boolean(myTeam && id !== myId && data.team !== myTeam && isStealthed);
+      tagEl.style.display = hideEnemyUi ? 'none' : 'block';
+    }
+
+    entry.targetPos.set(data.x, data.y, data.z);
+    entry.targetScale = data.scale || 1;
+    entry.targetRotY = data.rotY || 0;
   }
   for (const id in playerMeshes) { if (!activePlayerIds.has(id)) removePlayerMesh(id); }
 
@@ -410,12 +675,61 @@ socket.on('stateUpdate', (state) => {
   for (const id in orbData) { if (!orbMeshes[id]) createOrbMesh(id, orbData[id]); }
   for (const id in orbMeshes) { if (!activeOrbIds.has(id)) removeOrbMesh(id); }
 
-  const activeProjIds = new Set(Object.keys(projData));
+  const activeProjIds = new Set();
   for (const id in projData) {
-    if (!projMeshes[id]) createProjMesh(id, projData[id]);
-    else { projMeshes[id].targetX = projData[id].x; projMeshes[id].targetZ = projData[id].z; }
+    const proj = projData[id];
+    if (!proj || proj.visible === false || proj.kind === 'mine') {
+      if (projMeshes[id]) removeProjMesh(id);
+      continue;
+    }
+    activeProjIds.add(id);
+    if (!projMeshes[id]) createProjMesh(id, proj);
+    else {
+      if (projMeshes[id].kind !== (proj.kind || 'normal')) {
+        removeProjMesh(id);
+        createProjMesh(id, proj);
+      } else {
+        projMeshes[id].targetX = proj.x;
+        projMeshes[id].targetZ = proj.z;
+      }
+    }
   }
   for (const id in projMeshes) { if (!activeProjIds.has(id)) removeProjMesh(id); }
+
+  const activeBotIds = new Set();
+  for (const bot of botData) {
+    if (!bot || !bot.id) continue;
+    activeBotIds.add(bot.id);
+    if (!botMeshes[bot.id]) {
+      createBotMesh(bot.id, bot);
+    }
+    const entry = botMeshes[bot.id];
+    if (!entry) continue;
+    const scale = Number(bot.scale) || 1;
+    entry.targetPos.set(Number(bot.x) || 0, 0.8 * scale, Number(bot.z) || 0);
+    entry.targetScale = scale;
+    entry.currentHealth = Number(bot.currentHealth) || 0;
+    entry.maxHealth = Math.max(1, Number(bot.maxHealth) || 1);
+    entry.healthFill.style.width = `${Math.max(0, Math.min(1, entry.currentHealth / entry.maxHealth)) * 100}%`;
+  }
+  for (const id in botMeshes) {
+    if (!activeBotIds.has(id)) removeBotMesh(id);
+  }
+
+  const activeTurretIds = new Set();
+  for (const turret of turretData) {
+    if (!turret || !turret.id) continue;
+    activeTurretIds.add(turret.id);
+    if (!turretMeshes[turret.id]) createTurretMesh(turret.id, turret);
+    const entry = turretMeshes[turret.id];
+    if (!entry) continue;
+    const scale = Number(turret.scale) || 1;
+    entry.targetPos.set(Number(turret.x) || 0, 0.8 * scale, Number(turret.z) || 0);
+    entry.targetScale = scale;
+  }
+  for (const id in turretMeshes) {
+    if (!activeTurretIds.has(id)) removeTurretMesh(id);
+  }
 
   if (baseData) {
     for (const teamKey of ['red', 'blue']) {
@@ -434,9 +748,18 @@ socket.on('stateUpdate', (state) => {
 
   if (minimapCanvas) {
     const mapCtx = minimapCanvas.getContext('2d');
-    mapCtx.clearRect(0, 0, 200, 200);
+    const mapW = minimapCanvas.width;
+    const mapH = minimapCanvas.height;
+    mapCtx.clearRect(0, 0, mapW, mapH);
 
-    function worldToMap(x, z) { return { cx: (x + 50) * 2, cy: (z + 50) * 2 }; }
+    function worldToMap(x, z) {
+      const cx = ((x + WORLD_BOUNDARY) / (WORLD_BOUNDARY * 2)) * mapW;
+      const cy = ((z + WORLD_BOUNDARY) / (WORLD_BOUNDARY * 2)) * mapH;
+      return {
+        cx: Math.max(0, Math.min(mapW, cx)),
+        cy: Math.max(0, Math.min(mapH, cy)),
+      };
+    }
 
     if (baseData) {
       for (const teamKey of ['red', 'blue']) {
@@ -460,6 +783,7 @@ socket.on('stateUpdate', (state) => {
         const isAlly = (p.team === me.team);
 
         if (!isAlly && !isMe) {
+          if (p.isStealthed) continue;
           if ((p.x-me.x)**2 + (p.z-me.z)**2 > visionRangeSq) continue;
         }
 
@@ -469,6 +793,24 @@ socket.on('stateUpdate', (state) => {
         mapCtx.fill();
         if (isMe) { mapCtx.lineWidth = 1.5; mapCtx.strokeStyle = '#fff'; mapCtx.stroke(); }
       }
+    }
+
+    for (const bot of botData) {
+      if (!bot || typeof bot.x !== 'number' || typeof bot.z !== 'number') continue;
+      const { cx, cy } = worldToMap(bot.x, bot.z);
+      mapCtx.beginPath();
+      mapCtx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+      mapCtx.fillStyle = '#9a9a9a';
+      mapCtx.fill();
+    }
+
+    for (const turret of turretData) {
+      if (!turret || typeof turret.x !== 'number' || typeof turret.z !== 'number') continue;
+      const { cx, cy } = worldToMap(turret.x, turret.z);
+      mapCtx.beginPath();
+      mapCtx.rect(cx - 2, cy - 2, 4, 4);
+      mapCtx.fillStyle = '#f39c12';
+      mapCtx.fill();
     }
   }
 
@@ -514,31 +856,81 @@ socket.on('stateUpdate', (state) => {
 });
 
 // ── Input Handling ──────────────────────────────────────────────────────────
-const input = { up: false, down: false, left: false, right: false };
-const KEY_MAP = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };
+const keys = { w: false, a: false, s: false, d: false };
+const KEY_MAP = { KeyW: 'w', ArrowUp: 'w', KeyS: 's', ArrowDown: 's', KeyA: 'a', ArrowLeft: 'a', KeyD: 'd', ArrowRight: 'd' };
 
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const intersection = new THREE.Vector3();
+const worldUp = new THREE.Vector3(0, 1, 0);
+
+function updateAimIntersection() {
+  raycaster.setFromCamera(mouse, camera);
+  return raycaster.ray.intersectPlane(floorPlane, intersection);
+}
+
+function lerpAngle(current, target, alpha) {
+  let delta = target - current;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return current + delta * alpha;
+}
+
+function emitMoveIntent() {
+  if (!inGame) return;
+
+  // 1. Get the camera's actual looking direction
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.y = 0;
+  forward.normalize();
+
+  // 2. Calculate the perpendicular Right vector
+  const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+  // 3. Determine raw input (-1, 0, or 1)
+  let moveForward = 0;
+  let moveRight = 0;
+  if (keys.w) moveForward += 1;
+  if (keys.s) moveForward -= 1;
+  if (keys.d) moveRight += 1;
+  if (keys.a) moveRight -= 1;
+
+  // 4. Combine vectors based on input
+  const inputVec = new THREE.Vector3();
+  inputVec.addScaledVector(forward, moveForward);
+  inputVec.addScaledVector(right, moveRight);
+
+  if (inputVec.lengthSq() > 0) {
+    inputVec.normalize();
+  }
+
+  // 5. Send to server
+  socket.emit('moveIntent', { dirX: inputVec.x, dirZ: inputVec.z });
+}
 
 window.addEventListener('mousemove', (e) => {
-  if (!inGame) return;
+  if (!inGame || isHowToOpen) return;
   mouse.x = (e.clientX / innerWidth) * 2 - 1; mouse.y = -(e.clientY / innerHeight) * 2 + 1;
-  raycaster.setFromCamera(mouse, camera);
-  raycaster.ray.intersectPlane(floorPlane, intersection);
+  updateAimIntersection();
 });
 
 window.addEventListener('keydown', (e) => {
-  if (!inGame || e.target.id === 'lobby-username') return;
+  if (isHowToOpen && e.key === 'Escape') {
+    setHowToOpen(false);
+    e.preventDefault();
+    return;
+  }
+  if (!inGame || e.target.id === 'lobby-username' || isHowToOpen) return;
 
   if (e.key === 'Enter') {
     if (!isTyping) {
       isTyping = true;
       chatInput.classList.add('active');
       chatInput.focus();
-      for (const k in input) input[k] = false;
-      socket.emit('move', input);
+      for (const k in keys) keys[k] = false;
+      emitMoveIntent();
     } else {
       isTyping = false;
       const text = chatInput.value.trim();
@@ -558,6 +950,7 @@ window.addEventListener('keydown', (e) => {
     const now = Date.now();
     if (now - lastUltTime >= ultCooldown) {
       lastUltTime = now;
+      updateAimIntersection();
       socket.emit('ultimate', { targetX: intersection.x, targetZ: intersection.z });
       if (hudUltimate) hudUltimate.classList.remove('ready');
     }
@@ -570,8 +963,8 @@ window.addEventListener('keydown', (e) => {
       return;
   }
 
-  const dir = KEY_MAP[e.code];
-  if (dir && !input[dir]) { input[dir] = true; socket.emit('move', input); }
+  const key = KEY_MAP[e.code];
+  if (key && !keys[key]) { keys[key] = true; emitMoveIntent(); }
 
   if (e.key === '1' && !e.shiftKey) socket.emit('upgradeSkill', 'damage');
   else if (e.key === '2' && !e.shiftKey) socket.emit('upgradeSkill', 'health');
@@ -579,13 +972,22 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keyup', (e) => {
-  if (!inGame || isTyping) return;
-  const dir = KEY_MAP[e.code];
-  if (dir && input[dir]) { input[dir] = false; socket.emit('move', input); }
+  if (!inGame || isTyping || isHowToOpen) return;
+  const key = KEY_MAP[e.code];
+  if (key && keys[key]) { keys[key] = false; emitMoveIntent(); }
 });
 
 window.addEventListener('click', (e) => {
-  if (!inGame || isTyping || e.target.tagName === 'INPUT' || e.target.closest('#hud-skills')) return;
+  if (
+    !inGame ||
+    isTyping ||
+    isHowToOpen ||
+    e.target.tagName === 'INPUT' ||
+    e.target.closest('#hud-skills') ||
+    e.target.closest('#howto-modal') ||
+    e.target.closest('#help-button')
+  ) return;
+  updateAimIntersection();
   socket.emit('attack', { targetX: intersection.x, targetZ: intersection.z });
 });
 
@@ -610,12 +1012,17 @@ function joinGame(classType) {
   if (hudUltimate) hudUltimate.classList.add('visible');
   inGame = true;
   lastUltTime = Date.now();
-  for (const k in input) input[k] = false; // Reset bounds
+  for (const k in keys) keys[k] = false; // Reset bounds
+  emitMoveIntent();
 }
 document.getElementById('btn-warrior').addEventListener('click', () => joinGame('warrior'));
 document.getElementById('btn-archer').addEventListener('click',  () => joinGame('archer'));
 document.getElementById('btn-mage').addEventListener('click',  () => joinGame('mage'));
 document.getElementById('btn-priest').addEventListener('click',  () => joinGame('priest'));
+document.getElementById('btn-assassin').addEventListener('click', () => joinGame('assassin'));
+document.getElementById('btn-summoner').addEventListener('click', () => joinGame('summoner'));
+document.getElementById('btn-chaos').addEventListener('click', () => joinGame('chaos'));
+document.getElementById('btn-engineer').addEventListener('click', () => joinGame('engineer'));
 
 const gameOverEl = document.getElementById('game-over');
 const goTitle = document.getElementById('go-title');
@@ -630,7 +1037,16 @@ function showGameOver(winningTeam) {
 }
 
 // ── Camera & Render Loop ────────────────────────────────────────────────────
+const cameraOffset = new THREE.Vector3(0, 10, 15);
+const cameraLookTarget = new THREE.Vector3();
+const cameraLerpSpeed = 0.05;
 const cameraTarget = new THREE.Vector3();
+const rotatedCameraOffset = new THREE.Vector3();
+const cameraHeadOffset = new THREE.Vector3(0, 2, 0);
+const idealLookPoint = new THREE.Vector3();
+const vfxGlowOffset = new THREE.Vector3(0, 0.8, 0);
+let isCameraInitialized = false;
+let cameraYaw = 0;
 const clock = new THREE.Clock();
 
 function spawnMageParticle(tx, tz) {
@@ -653,17 +1069,32 @@ function animate() {
 
   const halfW = innerWidth / 2;
   const halfH = innerHeight / 2;
+  const localPlayerEntry = myId ? playerMeshes[myId] : null;
+
+  updateAimIntersection();
+  if (localPlayerEntry) {
+    const aimDx = intersection.x - localPlayerEntry.mesh.position.x;
+    const aimDz = intersection.z - localPlayerEntry.mesh.position.z;
+    if (aimDx * aimDx + aimDz * aimDz > 0.0001) {
+      localPlayerEntry.targetRotY = Math.atan2(aimDx, aimDz) + Math.PI;
+    }
+  }
 
   // Process Game Meshes
   for (const id in playerMeshes) {
-    const { mesh, targetPos, targetScale } = playerMeshes[id];
+    const { mesh, targetPos, targetScale, targetRotY } = playerMeshes[id];
     mesh.position.lerp(targetPos, LERP_FACTOR);
     mesh.scale.x += (targetScale - mesh.scale.x) * LERP_FACTOR;
     mesh.scale.y += (targetScale - mesh.scale.y) * LERP_FACTOR;
     mesh.scale.z += (targetScale - mesh.scale.z) * LERP_FACTOR;
+    mesh.rotation.y = lerpAngle(mesh.rotation.y, targetRotY || 0, LERP_FACTOR);
 
     const tag = nametags[id];
     if (tag) {
+      if (tag.style.display === 'none') {
+        tag.style.opacity = '0';
+        continue;
+      }
       const v = mesh.position.clone();
       v.y += (mesh.scale.y * 1.5) + 0.5;
       v.project(camera);
@@ -675,6 +1106,41 @@ function animate() {
         tag.style.top = `${-(v.y * halfH) + halfH}px`;
       }
     }
+  }
+
+  for (const id in botMeshes) {
+    const entry = botMeshes[id];
+    entry.mesh.position.lerp(entry.targetPos, LERP_FACTOR);
+    entry.mesh.scale.x += (entry.targetScale - entry.mesh.scale.x) * LERP_FACTOR;
+    entry.mesh.scale.y += (entry.targetScale - entry.mesh.scale.y) * LERP_FACTOR;
+    entry.mesh.scale.z += (entry.targetScale - entry.mesh.scale.z) * LERP_FACTOR;
+
+    if (entry.healthFill) {
+      const hpPct = Math.max(0, Math.min(1, entry.currentHealth / Math.max(1, entry.maxHealth)));
+      entry.healthFill.style.width = `${hpPct * 100}%`;
+    }
+
+    if (entry.healthRoot) {
+      const v = entry.mesh.position.clone();
+      v.y += (entry.mesh.scale.y * 1.7) + 0.6;
+      v.project(camera);
+      if (v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2) {
+        entry.healthRoot.style.opacity = '0';
+      } else {
+        entry.healthRoot.style.opacity = '1';
+        entry.healthRoot.style.left = `${(v.x * halfW) + halfW}px`;
+        entry.healthRoot.style.top = `${-(v.y * halfH) + halfH}px`;
+      }
+    }
+  }
+
+  for (const id in turretMeshes) {
+    const entry = turretMeshes[id];
+    entry.mesh.position.lerp(entry.targetPos, LERP_FACTOR);
+    entry.mesh.scale.x += (entry.targetScale - entry.mesh.scale.x) * LERP_FACTOR;
+    entry.mesh.scale.y += (entry.targetScale - entry.mesh.scale.y) * LERP_FACTOR;
+    entry.mesh.scale.z += (entry.targetScale - entry.mesh.scale.z) * LERP_FACTOR;
+    entry.mesh.rotation.y += delta * 1.8;
   }
 
   for (const soc of activeSocials) {
@@ -734,13 +1200,38 @@ function animate() {
       vfx.mesh.rotation.y += delta * 5;
       vfx.mesh.rotation.x += delta * 2;
       if (Math.random() > 0.5) spawnMageParticle(vfx.tx, vfx.tz);
-    } else if (vfx.type === 'priest') {
+    } else if (vfx.type === 'priestHealPulse') {
+      const invPct = 1 - pct;
+      const s = 0.3 + invPct * 6.2;
+      vfx.mesh.scale.set(s, s, s);
+      vfx.mesh.material.opacity = pct * 0.95;
+    } else if (vfx.type === 'assassinSmoke') {
+      const invPct = 1 - pct;
+      const s = 1.0 + invPct * 2.4;
+      vfx.mesh.scale.set(s, s * 0.7, s);
+      vfx.mesh.material.opacity = pct * 0.55;
+    } else if (vfx.type === 'assassinFlash') {
+      const invPct = 1 - pct;
+      const s = 0.8 + invPct * 2.5;
+      vfx.mesh.scale.setScalar(s);
+      vfx.mesh.material.opacity = pct;
+    } else if (vfx.type === 'chaosWarp') {
+      const invPct = 1 - pct;
+      const s = 1.0 + invPct * 20;
+      vfx.mesh.scale.set(s, s, s);
+      vfx.mesh.material.opacity = pct * 0.85;
+      vfx.mesh.rotation.y += delta * 6;
+      vfx.mesh.rotation.x += delta * 3;
+    } else if (vfx.type === 'casterGlow') {
       if (vfx.targetId && playerMeshes[vfx.targetId]) {
-         const pmesh = playerMeshes[vfx.targetId].mesh;
-         vfx.mesh.position.copy(pmesh.position); 
+        const pmesh = playerMeshes[vfx.targetId].mesh;
+        vfx.mesh.position.copy(pmesh.position).add(vfxGlowOffset);
       }
-      vfx.mesh.material.opacity = pct * 0.5;
-      vfx.mesh.rotation.y += delta;
+      const invPct = 1 - pct;
+      const s = 1.0 + invPct * 1.4;
+      vfx.mesh.scale.set(s, s, s);
+      vfx.mesh.material.opacity = pct * 0.8;
+      vfx.mesh.rotation.y += delta * 4;
     }
   }
 
@@ -791,22 +1282,46 @@ function animate() {
      }
   }
 
-  // Camera tracking + Screen Shake
-  if (myId && playerMeshes[myId]) {
-    const myPos = playerMeshes[myId].mesh.position;
-    const cameraOffset = new THREE.Vector3(0, 14, 14);
-    cameraTarget.copy(myPos).add(cameraOffset);
-    camera.position.lerp(cameraTarget, LERP_FACTOR);
-    
+  // Dynamic chase camera + Screen Shake
+  if (localPlayerEntry) {
+    const localMesh = localPlayerEntry.mesh;
+    const justInitialized = !isCameraInitialized;
+    if (!isCameraInitialized && localMesh) {
+      cameraYaw = localMesh.rotation.y;
+      isCameraInitialized = true;
+    }
+
+    let angleDifference = localMesh.rotation.y - cameraYaw;
+    angleDifference = (angleDifference + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+    cameraYaw += angleDifference * 0.05;
+
+    rotatedCameraOffset.copy(cameraOffset).applyAxisAngle(worldUp, cameraYaw);
+    cameraTarget.copy(localMesh.position).add(rotatedCameraOffset);
+    idealLookPoint.copy(localMesh.position).add(cameraHeadOffset);
+
+    if (justInitialized) {
+      camera.position.copy(cameraTarget);
+      cameraLookTarget.copy(idealLookPoint);
+    } else {
+      camera.position.lerp(cameraTarget, cameraLerpSpeed);
+      cameraLookTarget.lerp(idealLookPoint, cameraLerpSpeed);
+    }
+
     if (shakeIntensity > 0.01) {
       camera.position.x += (Math.random() - 0.5) * shakeIntensity;
       camera.position.y += (Math.random() - 0.5) * shakeIntensity;
       camera.position.z += (Math.random() - 0.5) * shakeIntensity;
       shakeIntensity *= shakeDecay;
     }
-    
-    camera.lookAt(myPos);
+
+    camera.lookAt(cameraLookTarget);
+  } else {
+    isCameraInitialized = false;
+    cameraYaw = 0;
   }
+
+  emitMoveIntent();
+  updateAimIntersection();
 
   renderer.render(scene, camera);
 }
