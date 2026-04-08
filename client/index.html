@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Arena.io – Phase 9 – The Ultimates" />
+    <title>Arena.io – Phase 9</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; font-family: 'Inter', sans-serif; }
+      canvas { display: block; }
+
+      /* ── LOBBY ── */
+      #lobby {
+        position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: radial-gradient(ellipse at 50% 40%, rgba(20,20,40,0.95) 0%, rgba(6,6,12,0.98) 100%); transition: opacity 0.5s ease, visibility 0.5s ease;
+      }
+      #lobby.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+      #lobby .lobby-title { font-size: 48px; font-weight: 800; letter-spacing: 0.12em; color: #fff; text-shadow: 0 0 40px rgba(100,140,255,0.3), 0 2px 8px rgba(0,0,0,0.6); margin-bottom: 8px; }
+      #lobby .lobby-subtitle { font-size: 14px; color: rgba(255,255,255,0.35); margin-bottom: 24px; letter-spacing: 0.08em; }
+      
+      #lobby-username {
+        padding: 12px 20px; font-size: 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(0,0,0,0.4); color: #fff; margin-bottom: 48px; width: 300px; text-align: center;
+        outline: none; font-family: 'Inter', sans-serif; transition: border-color 0.2s;
+      }
+      #lobby-username:focus { border-color: #3498db; box-shadow: 0 0 10px rgba(52,152,219,0.3); }
+
+      #lobby .class-cards { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; max-width: 1000px; }
+      .class-card { width: 220px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 28px 24px 24px; text-align: center; cursor: pointer; transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease; }
+      .class-card:hover { transform: translateY(-6px) scale(1.03); border-color: rgba(255,255,255,0.2); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+      .class-card .icon { font-size: 48px; margin-bottom: 12px; }
+      .class-card .name { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+      .class-card .role { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; margin-bottom: 14px; }
+      .class-card .desc { font-size: 11px; color: rgba(255,255,255,0.4); line-height: 1.5; }
+      
+      .class-card.warrior .role  { color: #e74c3c; } .class-card.warrior:hover  { border-color: rgba(231,76,60,0.4); box-shadow: 0 12px 40px rgba(231,76,60,0.15); }
+      .class-card.archer .role   { color: #3498db; } .class-card.archer:hover   { border-color: rgba(52,152,219,0.4); box-shadow: 0 12px 40px rgba(52,152,219,0.15); }
+      .class-card.mage .role   { color: #9b59b6; } .class-card.mage:hover   { border-color: rgba(155,89,182,0.4); box-shadow: 0 12px 40px rgba(155,89,182,0.15); }
+      .class-card.priest .role   { color: #f1c40f; } .class-card.priest:hover   { border-color: rgba(241,196,15,0.4); box-shadow: 0 12px 40px rgba(241,196,15,0.15); }
+
+      /* ── BASE HEALTH UI ── */
+      #hud-bases { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 12; pointer-events: none; display: flex; gap: 20px; opacity: 0; transition: opacity 0.4s ease; }
+      #hud-bases.visible { opacity: 1; }
+      .base-hp-card { width: 180px; background: rgba(10,10,18,0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 10px 14px; }
+      .base-hp-card .base-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+      .base-hp-card.red .base-label { color: #ff6b6b; } .base-hp-card.blue .base-label { color: #74b9ff; }
+      .base-hp-card .base-track { width: 100%; height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+      .base-hp-card .base-fill { height: 100%; border-radius: 4px; transition: width 0.2s ease; }
+      .base-hp-card.red .base-fill { background: linear-gradient(90deg, #c0392b, #ff6b6b); box-shadow: 0 0 6px rgba(231,76,60,0.5); }
+      .base-hp-card.blue .base-fill { background: linear-gradient(90deg, #2980b9, #74b9ff); box-shadow: 0 0 6px rgba(52,152,219,0.5); }
+
+      /* ── LEADERBOARD ── */
+      #hud-leaderboard {
+        position: fixed; top: 16px; right: 16px; z-index: 10;
+        background: rgba(10,10,18,0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 12px 16px;
+        width: 220px; opacity: 0; transition: opacity 0.4s ease; pointer-events: none;
+      }
+      #hud-leaderboard.visible { opacity: 1; }
+      #hud-leaderboard .title { color: #fff; font-weight: 700; font-size: 14px; margin-bottom: 12px; text-align: center; letter-spacing: 0.08em; }
+      #leaderboard-list { margin: 0; padding-left: 20px; font-size: 12px; color: rgba(255,255,255,0.8); line-height: 1.6; }
+      #leaderboard-list li { margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      /* ── FLOATING NAMETAGS, DAMAGE TEXT, & SOCIAL ── */
+      #nametags-container, #damage-container, #social-container { position: absolute; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
+      #damage-container { z-index: 20; }
+      #social-container { z-index: 15; }
+      
+      .nametag { 
+        position: absolute; font-size: 12px; font-weight: 700; color: #fff; 
+        text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 0 2px #000; 
+        transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.15s; letter-spacing: 0.03em;
+      }
+      
+      .dmg-text {
+        position: absolute; font-size: 24px; font-weight: 800; font-family: 'Inter', sans-serif;
+        text-shadow: 0 2px 6px rgba(0,0,0,1), 0 0 3px #000;
+        transform: translate(-50%, -50%); transition: top 0.8s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.8s ease-in; pointer-events: none;
+      }
+
+      /* ── SOCIAL ── */
+      #chat-input {
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100;
+        width: 400px; padding: 12px 20px; font-size: 14px; border-radius: 20px;
+        border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.6); color: #fff;
+        outline: none; font-family: 'Inter', sans-serif; transition: opacity 0.2s, visibility 0.2s;
+        opacity: 0; visibility: hidden; pointer-events: none; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      }
+      #chat-input.active { opacity: 1; visibility: visible; pointer-events: auto; }
+      
+      .social-bubble {
+        position: absolute; font-family: 'Inter', sans-serif;
+        transform: translate(-50%, -100%); transition: opacity 0.3s;
+        pointer-events: none; white-space: nowrap;
+      }
+      .social-chat {
+        background: #fff; color: #000; padding: 6px 12px; border-radius: 12px;
+        font-size: 12px; font-weight: 600; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+        border-bottom-left-radius: 4px;
+      }
+      .social-chat::after {
+        content: ''; position: absolute; bottom: -4px; left: 10px;
+        border-width: 4px 4px 0 0; border-style: solid; border-color: #fff transparent transparent transparent;
+      }
+      .social-emote { font-size: 32px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4)); }
+
+      /* ── ULTIMATE HUD ── */
+      #hud-ultimate {
+        position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 10;
+        width: 300px; height: 40px; border: 2px solid rgba(255,255,255,0.3); border-radius: 6px;
+        background: rgba(0,0,0,0.6); overflow: hidden; display: none;
+      }
+      #hud-ultimate.visible { display: block; }
+      #hud-ultimate.ready { border-color: #f1c40f; box-shadow: 0 0 15px rgba(241,196,15,0.6); overflow: visible; }
+      #hud-ultimate .ult-text {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        font-size: 14px; font-weight: 800; color: #fff; letter-spacing: 0.1em; z-index: 2; pointer-events: none;
+      }
+      #hud-ultimate.ready .ult-text { color: #f1c40f; text-shadow: 0 0 5px rgba(0,0,0,0.8); }
+      #hud-ultimate .ult-fill {
+        height: 100%; width: 100%; background: #f1c40f; opacity: 0.4; transform-origin: left; transition: transform 0.1s linear;
+      }
+
+      /* ── GAME OVER ── */
+      #game-over { position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(4,4,10,0.92); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.6s ease, visibility 0.6s ease; }
+      #game-over.visible { opacity: 1; visibility: visible; pointer-events: auto; }
+      #game-over .go-title { font-size: 56px; font-weight: 800; letter-spacing: 0.08em; margin-bottom: 12px; text-shadow: 0 0 60px currentColor, 0 4px 12px rgba(0,0,0,0.8); }
+      #game-over .go-subtitle { font-size: 16px; color: rgba(255,255,255,0.4); letter-spacing: 0.06em; }
+
+      /* ── STATS HUD ── */
+      #hud-stats { position: fixed; top: 16px; left: 16px; z-index: 10; pointer-events: none; width: 220px; opacity: 0; transition: opacity 0.4s ease; }
+      #hud-stats.visible { opacity: 1; }
+      #hud-stats .panel { background: rgba(10,10,18,0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px 16px; }
+      #hud-stats .title { font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.9); letter-spacing: 0.06em; margin-bottom: 8px; }
+      #hud-stats .stat-row { display: flex; justify-content: space-between; font-size: 12px; color: rgba(255,255,255,0.5); margin-bottom: 4px; }
+      #hud-stats .stat-row .value { color: rgba(255,255,255,0.8); font-weight: 600; }
+      .bar-container { margin-top: 8px; }
+      .bar-label { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.55); margin-bottom: 3px; display: flex; justify-content: space-between; }
+      .bar-track { width: 100%; height: 10px; background: rgba(255,255,255,0.06); border-radius: 5px; overflow: hidden; position: relative; }
+      .bar-fill { height: 100%; border-radius: 5px; transition: width 0.15s ease; position: relative; }
+      .bar-fill::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 50%; background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%); border-radius: 5px 5px 0 0; }
+      .bar-fill.health { background: linear-gradient(90deg, #e74c3c, #ff6b6b); box-shadow: 0 0 8px rgba(231,76,60,0.4); }
+      .bar-fill.mana   { background: linear-gradient(90deg, #3498db, #74b9ff); box-shadow: 0 0 8px rgba(52,152,219,0.4); }
+      .bar-fill.exp    { background: linear-gradient(90deg, #f39c12, #fdcb6e); box-shadow: 0 0 8px rgba(243,156,18,0.4); }
+
+      /* ── SKILLS HUD (bottom-left) ── */
+      #hud-skills { position: fixed; bottom: 16px; left: 16px; z-index: 10; pointer-events: none; background: rgba(10,10,18,0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 12px 16px; display: none; box-shadow: 0 0 15px rgba(243, 156, 18, 0.3); }
+      #hud-skills .skills-title { color: #f39c12; font-weight: 700; font-size: 14px; margin-bottom: 8px; text-shadow: 0 0 5px rgba(243,156,18,0.5); }
+      #hud-skills .skill-option { color: rgba(255,255,255,0.8); font-size: 12px; margin-bottom: 4px; font-weight: 600; }
+
+      /* ── MINIMAP (bottom-right) ── */
+      #minimap-container { position: fixed; bottom: 16px; right: 16px; z-index: 10; opacity: 0; transition: opacity 0.4s ease; pointer-events: none; }
+      #minimap-container.visible { opacity: 1; }
+      #minimap { background: rgba(0, 0, 0, 0.6); border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+
+      /* ── CROSSHAIR ── */
+      #crosshair { position: fixed; top: 50%; left: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; pointer-events: none; z-index: 11; opacity: 0; transition: opacity 0.4s ease; }
+      #crosshair.visible { opacity: 0.35; }
+      #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; border-radius: 1px; }
+      #crosshair::before { width: 2px; height: 20px; left: 9px; top: 0; }
+      #crosshair::after  { width: 20px; height: 2px; top: 9px; left: 0; }
+    </style>
+  </head>
+  <body>
+    <!-- OVERLAYS -->
+    <div id="nametags-container"></div>
+    <div id="damage-container"></div>
+    <div id="social-container"></div>
+    <input id="chat-input" type="text" placeholder="Press Enter to chat..." autocomplete="off" />
+
+    <!-- LOBBY -->
+    <div id="lobby">
+      <div class="lobby-title">ARENA.IO</div>
+      <div class="lobby-subtitle">BATTLE FOR GLORY</div>
+      
+      <input id="lobby-username" type="text" placeholder="Enter Username (required)" maxlength="16" autocomplete="off" />
+
+      <div class="class-cards">
+        <div class="class-card warrior" id="btn-warrior">
+          <div class="icon">⚔️</div>
+          <div class="name">Warrior</div>
+          <div class="role">MELEE</div>
+          <div class="desc">150 HP · Slow & tanky<br>Devastating cleave attack<br>Click near enemies to strike</div>
+        </div>
+        <div class="class-card archer" id="btn-archer">
+          <div class="icon">🏹</div>
+          <div class="name">Archer</div>
+          <div class="role">FAST RANGED</div>
+          <div class="desc">80 HP · Fast & agile<br>Rapid projectile shots<br>Click anywhere to fire</div>
+        </div>
+        <div class="class-card mage" id="btn-mage">
+          <div class="icon">🔮</div>
+          <div class="name">Mage</div>
+          <div class="role">HEAVY RANGED</div>
+          <div class="desc">90 HP · Slow attacker<br>Heavy single target bursts<br>Click anywhere to fire</div>
+        </div>
+        <div class="class-card priest" id="btn-priest">
+          <div class="icon">✨</div>
+          <div class="name">Priest</div>
+          <div class="role">SUPPORT RANGED</div>
+          <div class="desc">120 HP · Fast & light<br>Rapid low-damage shots<br>Click anywhere to fire</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GAME OVER -->
+    <div id="game-over">
+      <div class="go-title" id="go-title">GAME OVER</div>
+      <div class="go-subtitle" id="go-subtitle">A base has been destroyed!</div>
+    </div>
+
+    <!-- UI ELEMENTS -->
+    <div id="crosshair"></div>
+
+    <!-- BASE HEALTH -->
+    <div id="hud-bases">
+      <div class="base-hp-card red">
+        <div class="base-label"><span>🔴 RED BASE</span><span id="hud-base-red-text">2000</span></div>
+        <div class="base-track"><div class="base-fill" id="hud-base-red-bar" style="width:100%"></div></div>
+      </div>
+      <div class="base-hp-card blue">
+        <div class="base-label"><span>🔵 BLUE BASE</span><span id="hud-base-blue-text">2000</span></div>
+        <div class="base-track"><div class="base-fill" id="hud-base-blue-bar" style="width:100%"></div></div>
+      </div>
+    </div>
+
+    <!-- LEADERBOARD -->
+    <div id="hud-leaderboard">
+      <div class="title">🏆 LEADERBOARD</div>
+      <ol id="leaderboard-list"></ol>
+    </div>
+
+    <!-- ULTIMATE HUD -->
+    <div id="hud-ultimate">
+      <div class="ult-text">SPACEBAR - ULTIMATE</div>
+      <div class="ult-fill" id="hud-ultimate-fill"></div>
+    </div>
+
+    <!-- STATS HUD -->
+    <div id="hud-stats">
+      <div class="panel">
+        <div class="title" id="hud-username-header">ARENA.IO</div>
+        <div class="stat-row"><span>Team</span><span class="value" id="hud-team">—</span></div>
+        <div class="stat-row"><span>Class</span><span class="value" id="hud-class">—</span></div>
+        <div class="stat-row"><span>Level</span><span class="value" id="hud-level">1</span></div>
+        <div class="stat-row"><span>Players</span><span class="value" id="hud-players">0</span></div>
+        <div class="bar-container"><div class="bar-label"><span>HP</span><span id="hud-hp-text">100 / 100</span></div><div class="bar-track"><div class="bar-fill health" id="hud-hp-bar" style="width:100%"></div></div></div>
+        <div class="bar-container"><div class="bar-label"><span>EXP</span><span id="hud-exp-text">0 / 5</span></div><div class="bar-track"><div class="bar-fill exp" id="hud-exp-bar" style="width:0%"></div></div></div>
+      </div>
+    </div>
+
+    <!-- SKILLS HUD -->
+    <div id="hud-skills">
+      <div class="skills-title">Skill Points Available!</div>
+      <div class="skill-option">[1] Upgrade Damage</div>
+      <div class="skill-option">[2] Upgrade Health</div>
+      <div class="skill-option">[3] Upgrade Speed</div>
+    </div>
+
+    <!-- MINIMAP -->
+    <div id="minimap-container">
+      <canvas id="minimap" width="200" height="200"></canvas>
+    </div>
+
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
