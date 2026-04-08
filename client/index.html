@@ -56,6 +56,19 @@
       .base-hp-card.red .base-fill { background: linear-gradient(90deg, #c0392b, #ff6b6b); box-shadow: 0 0 6px rgba(231,76,60,0.5); }
       .base-hp-card.blue .base-fill { background: linear-gradient(90deg, #2980b9, #74b9ff); box-shadow: 0 0 6px rgba(52,152,219,0.5); }
 
+      /* ── BOSS HEALTH UI ── */
+      #hud-boss { position: fixed; top: 105px; left: 50%; transform: translateX(-50%); z-index: 12; pointer-events: none; display: none; opacity: 0; transition: opacity 0.4s ease, display 0.4s ease; }
+      #hud-boss.visible { display: block; opacity: 1; }
+      #hud-boss .boss-label { font-size: 14px; font-weight: 700; letter-spacing: 0.08em; margin-bottom: 6px; text-align: center; color: #bb6bd9; }
+      #hud-boss .boss-track { width: 400px; height: 24px; background: rgba(255,255,255,0.08); border: 2px solid rgba(187,107,217,0.4); border-radius: 8px; overflow: hidden; box-shadow: 0 0 10px rgba(187,107,217,0.2) inset; }
+      #hud-boss .boss-fill { height: 100%; background: linear-gradient(90deg, #9933ff, #cc66ff); box-shadow: 0 0 12px rgba(187,107,217,0.8); transition: width 0.15s ease; position: relative; }
+      #hud-boss .boss-fill::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 50%; background: linear-gradient(180deg, rgba(255,255,255,0.3) 0%, transparent 100%); }
+
+      /* ── ANNOUNCEMENT ── */
+      #announcement-container { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 150; pointer-events: none; }
+      .announcement { font-size: 48px; font-weight: 900; letter-spacing: 0.08em; text-align: center; color: #bb6bd9; text-shadow: 0 0 40px rgba(187,107,217,1), 0 4px 16px rgba(0,0,0,0.8); animation: announcementFade 4s ease-in-out forwards; }
+      @keyframes announcementFade { 0% { opacity: 0; transform: scale(0.8); } 20% { opacity: 1; transform: scale(1); } 80% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(0.8); } }
+
       /* ── LEADERBOARD ── */
       #hud-leaderboard {
         position: fixed; top: 16px; right: 16px; z-index: 10;
@@ -80,8 +93,12 @@
       }
       
       .dmg-text {
-        position: absolute; font-size: 24px; font-weight: 800; font-family: 'Inter', sans-serif;
-        text-shadow: 0 2px 6px rgba(0,0,0,1), 0 0 3px #000;
+        position: absolute; font-size: 28px; font-weight: 900; font-style: italic; font-family: 'Impact', 'Bangers', sans-serif;
+        text-transform: uppercase; color: #ffe75c;
+        -webkit-text-stroke: 2px #000;
+        text-shadow: 0 0 2px #000, 0 2px 8px rgba(0,0,0,0.95), 0 0 16px rgba(255,255,255,0.25)
+        -webkit-text-stroke: 2px #000;
+        text-shadow: 0 0 2px #000, 0 2px 8px rgba(0,0,0,0.95), 0 0 16px rgba(255,255,255,0.25);
         transform: translate(-50%, -50%); transition: top 0.8s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.8s ease-in; pointer-events: none;
       }
 
@@ -134,8 +151,63 @@
       #game-over .go-title { font-size: 56px; font-weight: 800; letter-spacing: 0.08em; margin-bottom: 12px; text-shadow: 0 0 60px currentColor, 0 4px 12px rgba(0,0,0,0.8); }
       #game-over .go-subtitle { font-size: 16px; color: rgba(255,255,255,0.4); letter-spacing: 0.06em; }
 
+      /* ── ENDGAME SCOREBOARD ── */
+      #endgame-screen { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.92); display: none; flex-direction: column; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; overflow-y: auto; padding: 20px; }
+      #endgame-screen.visible { display: flex; opacity: 1; pointer-events: auto; }
+      
+      #endgame-container { max-width: 900px; width: 100%; }
+      
+      #victory-text { 
+        font-size: 72px; font-weight: 900; letter-spacing: 0.12em; text-align: center; margin-bottom: 24px;
+        transform: skewX(-10deg); 
+        text-shadow: 0 0 40px currentColor, 0 8px 20px rgba(0,0,0,0.9);
+        -webkit-text-stroke: 3px #000;
+        animation: victoryPulse 0.6s ease-out;
+      }
+      #victory-text.victory { color: #4ade80; }
+      #victory-text.defeat { color: #ff4444; }
+      
+      @keyframes victoryPulse { 0% { transform: skewX(-10deg) scale(0.8); opacity: 0; } 100% { transform: skewX(-10deg) scale(1); opacity: 1; } }
+      
+      #endgame-scoreboard {
+        background: rgba(20, 20, 30, 0.85); border: 4px solid #000; border-radius: 8px; padding: 0; overflow: hidden; box-shadow: 0 8px 20px rgba(0,0,0,0.7);
+      }
+      
+      .scoreboard-header {
+        display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr 1.5fr 1.5fr; gap: 0; padding: 16px 12px;
+        background: linear-gradient(90deg, rgba(100,50,150,0.3) 0%, rgba(50,100,200,0.3) 100%);
+        border-bottom: 3px solid #000; font-weight: 800; font-size: 13px; letter-spacing: 0.05em;
+        text-transform: uppercase; color: #fff;
+      }
+      
+      #endgame-scoreboard-body { }
+      
+      .scoreboard-row {
+        display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr 1.5fr 1.5fr; gap: 0; padding: 12px; align-items: center;
+        border-bottom: 2px solid rgba(0,0,0,0.5); font-size: 13px; color: rgba(255,255,255,0.9);
+        background: repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(255,255,255,0.01) 2px, rgba(255,255,255,0.01) 4px);
+      }
+      
+      .scoreboard-row:nth-child(even) { background-color: rgba(100, 100, 150, 0.08); background-image: repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(255,255,255,0.02) 2px, rgba(255,255,255,0.02) 4px); }
+      .scoreboard-row:first-child { background-color: rgba(100, 150, 100, 0.1); font-weight: 700; }
+      
+      .sb-col { padding: 0 8px; }
+      .sb-name { font-weight: 600; }
+      .sb-class { font-size: 12px; opacity: 0.8; text-transform: capitalize; }
+      .sb-kills { text-align: center; color: #ff6b6b; font-weight: 600; }
+      .sb-deaths { text-align: center; color: #7b7b7b; }
+      .sb-botkills { text-align: center; color: #f1c40f; }
+      .sb-damage { text-align: right; color: #74b9ff; font-weight: 600; }
+      
+      #endgame-countdown {
+        text-align: center; margin-top: 20px; font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.6); letter-spacing: 0.04em;
+        animation: countdownFlash 1s infinite;
+      }
+      
+      @keyframes countdownFlash { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.4; } }
+
       /* ── STATS HUD ── */
-      #hud-stats { position: fixed; top: 16px; left: 16px; z-index: 10; pointer-events: none; width: 220px; opacity: 0; transition: opacity 0.4s ease; }
+      #hud-stats { position: fixed; bottom: 20px; left: 20px; z-index: 10; pointer-events: none; width: 220px; opacity: 0; transition: opacity 0.4s ease; }
       #hud-stats.visible { opacity: 1; }
       #hud-stats .panel { background: rgba(10,10,18,0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px 16px; }
       #hud-stats .title { font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.9); letter-spacing: 0.06em; margin-bottom: 8px; }
@@ -151,9 +223,9 @@
       .bar-fill.exp    { background: linear-gradient(90deg, #f39c12, #fdcb6e); box-shadow: 0 0 8px rgba(243,156,18,0.4); }
 
       /* ── MINIMAP (bottom-right) ── */
-      #minimap-container { position: fixed; bottom: 16px; right: 16px; z-index: 10; opacity: 0; transition: opacity 0.4s ease; pointer-events: none; }
+      #minimap-container { position: fixed; bottom: 20px; right: 20px; z-index: 10; width: 200px; height: 200px; border-radius: 50%; pointer-events: none; opacity: 0; transition: opacity 0.4s ease; display: flex; align-items: center; justify-content: center; }
       #minimap-container.visible { opacity: 1; }
-      #minimap { background: rgba(0, 0, 0, 0.6); border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+      #minimap { background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.08) 0%, transparent 22%), radial-gradient(circle at 70% 70%, rgba(255,255,255,0.06) 0%, transparent 18%), rgba(0, 0, 0, 0.55); border-radius: 50%; border: 4px solid #000; box-shadow: 4px 4px 0px rgba(0,0,0,0.45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 
       /* ── CROSSHAIR ── */
       #crosshair { position: fixed; top: 50%; left: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; pointer-events: none; z-index: 11; opacity: 0; transition: opacity 0.4s ease; }
@@ -194,6 +266,7 @@
         overflow-y: auto;
         border: 1px solid rgba(255,255,255,0.18);
         box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        pointer-events: auto;
       }
       #howto-modal h2 { margin-bottom: 12px; font-size: 28px; letter-spacing: 0.04em; }
       #howto-modal h3 { margin-top: 14px; margin-bottom: 8px; font-size: 16px; color: #9de6ff; }
@@ -219,7 +292,7 @@
         transform: translateX(-50%);
         z-index: 200;
         display: none;
-        pointer-events: none;
+        pointer-events: auto;
       }
       #skill-card-overlay.visible { display: block; }
       #skill-card-wrap {
@@ -385,6 +458,25 @@
       <div class="go-subtitle" id="go-subtitle">A base has been destroyed!</div>
     </div>
 
+    <!-- ENDGAME SCOREBOARD -->
+    <div id="endgame-screen">
+      <div id="endgame-container">
+        <h1 id="victory-text">VICTORY!</h1>
+        <div id="endgame-scoreboard">
+          <div class="scoreboard-header">
+            <div class="sb-col sb-name">Player</div>
+            <div class="sb-col sb-class">Class</div>
+            <div class="sb-col sb-kills">Kills</div>
+            <div class="sb-col sb-deaths">Deaths</div>
+            <div class="sb-col sb-botkills">Bot Kills</div>
+            <div class="sb-col sb-damage">Damage</div>
+          </div>
+          <div id="endgame-scoreboard-body"></div>
+        </div>
+        <div id="endgame-countdown">Restarting in <span id="countdown-timer">15</span>s...</div>
+      </div>
+    </div>
+
     <!-- UI ELEMENTS -->
     <div id="crosshair"></div>
 
@@ -398,6 +490,13 @@
         <div class="base-label"><span>🔵 BLUE BASE</span><span id="hud-base-blue-text">2000</span></div>
         <div class="base-track"><div class="base-fill" id="hud-base-blue-bar" style="width:100%"></div></div>
       </div>
+    </div>
+
+    <!-- LEVIATHAN BOSS -->
+    <div id="hud-boss">
+      <div class="boss-label">👹 LEVIATHAN</div>
+      <div class="boss-track"><div class="boss-fill" id="hud-boss-bar" style="width:100%"></div></div>
+      <div style="text-align: center; font-size: 11px; color: rgba(187,107,217,0.7); margin-top: 4px;" id="hud-boss-text">5000 / 5000</div>
     </div>
 
     <!-- LEADERBOARD -->
@@ -456,6 +555,9 @@
     <div id="minimap-container">
       <canvas id="minimap" width="200" height="200"></canvas>
     </div>
+
+    <!-- ANNOUNCEMENT -->
+    <div id="announcement-container"></div>
 
     <script type="module" src="/main.js"></script>
   </body>

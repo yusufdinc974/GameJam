@@ -186,6 +186,7 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
 // Game State
+let gameState = 'playing'; // 'playing' or 'gameOver'
 const players = {};
 const orbs = {};
 const projectiles = {};
@@ -198,6 +199,19 @@ let botIdCounter = 0;
 let turretIdCounter = 0;
 let redColorIdx = 0;
 let blueColorIdx = 0;
+
+// Leviathan Boss State
+let boss = null;
+let bossTimer = 180; // 180 seconds = 3 minutes
+let bossShockwaveTimer = 0;
+const LEVIATHAN_MAX_HEALTH = 5000;
+const LEVIATHAN_RADIUS = 10;
+const LEVIATHAN_SHOCKWAVE_INTERVAL = 3.0; // 3 seconds
+const LEVIATHAN_SHOCKWAVE_RANGE = 40;
+const LEVIATHAN_SHOCKWAVE_DAMAGE = 40;
+const LEVIATHAN_SPAWN_X = 0;
+const LEVIATHAN_SPAWN_Z = 0;
+const LEVIATHAN_BOSS_BUFF_DURATION_MS = 60000; // 60 seconds
 
 const bases = {
   red:  { id: 'base_red', team: 'red', maxHealth: BASE_MAX_HEALTH, currentHealth: BASE_MAX_HEALTH, x: -150, z: -150, scale: 5 },
@@ -572,6 +586,25 @@ function resetPlayer(p) {
   p.rotY = 0; p.input = { dirX: 0, dirZ: 0 };
 }
 
+// ── Full Match Reset ────────────────────────────────────────────────────────
+function resetMatch() {
+  gameState = 'playing';
+  bases.red.currentHealth = BASE_MAX_HEALTH;
+  bases.blue.currentHealth = BASE_MAX_HEALTH;
+  bots.length = 0;
+  turrets.length = 0;
+  for (const id in players) {
+    const p = players[id];
+    resetPlayer(p);
+    p.kills = 0;
+    p.deaths = 0;
+    p.botKills = 0;
+    p.damageDealt = 0;
+  }
+  io.emit('gameReset');
+  console.log('[MATCH] Game reset - new match starting');
+}
+
 // Socket.io Events
 io.on('connection', (socket) => {
   socket.emit('assignId', socket.id);
@@ -595,7 +628,9 @@ io.on('connection', (socket) => {
       skills: {}, pendingSkillChoices: 0, currentSkillChoices: [], isChoosingSkill: false, damageMultiplier: classDef.damageMultiplier,
       lastAttackerId: null, isStunned: false, isInvincible: false, lastUltimateTime: 0,
       isStealthed: false, lastCombatActionTime: 0,
-      isConfused: false, confusedUntil: 0, speedBuffUntil: 0
+      isConfused: false, confusedUntil: 0, speedBuffUntil: 0,
+      // Match statistics
+      kills: 0, deaths: 0, botKills: 0, damageDealt: 0
     };
     socket.emit('initMap', { walls, stealthZones });
     console.log(`[JOIN] ${username} joined team ${team} as ${classType}`);
@@ -776,6 +811,7 @@ io.on('connection', (socket) => {
           attackCooldown: 0,
           scale: 0.85,
           color: 'grey',
+          team: p.team,
           lastAttackerId: null,
           ownerId: socket.id,
           ownerTeam: p.team,
@@ -839,7 +875,8 @@ io.on('connection', (socket) => {
         if (eDist > MELEE_RANGE * p.scale || eDist === 0) continue;
         const dot = (edx * dirX + edz * dirZ) / eDist;
         if (Math.acos(Math.max(-1, Math.min(1, dot))) <= MELEE_ARC / 2) {
-          const dmg = p.baseDamage * p.damageMultiplier;
+          let dmg = p.baseDamage * p.damageMultiplier;
+          if (p.hasBossBuff) dmg *= 2.0;
           enemy.currentHealth -= dmg;
           enemy.lastAttackerId = socket.id;
           io.emit('combatEvent', { type: 'damage', x: enemy.x, z: enemy.z, amount: Math.round(dmg), color: enemy.color });
@@ -852,8 +889,25 @@ io.on('connection', (socket) => {
         if (bDist > MELEE_RANGE * p.scale || bDist === 0) continue;
         const dot = (bdx * dirX + bdz * dirZ) / bDist;
         if (Math.acos(Math.max(-1, Math.min(1, dot))) <= MELEE_ARC / 2) {
-          const dmg = p.baseDamage * p.damageMultiplier;
+          let dmg = p.baseDamage * p.damageMultiplier;
+          if (p.hasBossBuff) dmg *= 2.0;
           applyBotDamage(bot, dmg, socket.id);
+        }
+      }
+      // Damage the boss if in range
+      if (boss && boss.currentHealth > 0) {
+        const bdx = boss.x - p.x;
+        const bdz = boss.z - p.z;
+        const bDist = Math.sqrt(bdx * bdx + bdz * bdz);
+        if (bDist <= MELEE_RANGE * p.scale + boss.radius && bDist > 0) {
+          const dot = (bdx * dirX + bdz * dirZ) / bDist;
+          if (Math.acos(Math.max(-1, Math.min(1, dot))) <= MELEE_ARC / 2) {
+            let dmg = MELEE_BASE_DAMAGE * p.damageMultiplier;
+            if (p.hasBossBuff) dmg *= 2.0;
+            boss.currentHealth -= dmg;
+            boss.lastAttackerId = socket.id;
+            io.emit('combatEvent', { type: 'damage', x: boss.x, z: boss.z, amount: Math.round(dmg), color: '#9933ff' });
+          }
         }
       }
       for (const bKey in bases) {
@@ -911,7 +965,7 @@ setInterval(() => {
   const tickNow = Date.now();
   for (const id in players) {
     const p = players[id];
-    if (p.permaDead || p.isStunned) continue;
+    if (p.permaDead || p.isStunned || gameState === 'gameOver') continue;
     if (p.isConfused && tickNow >= (p.confusedUntil || 0)) p.isConfused = false;
     const buffMult = tickNow < (p.speedBuffUntil || 0) ? ASSASSIN_SPEED_BUFF_MULT : 1;
     const speed = PLAYER_SPEED * p.speedMultiplier * buffMult;
@@ -1147,10 +1201,27 @@ setInterval(() => {
       if ((proj.x-p.x)**2 + (proj.z-p.z)**2 < (PROJECTILE_RADIUS * p.scale)**2) {
         const dmg = getProjectileDamage(proj);
         p.currentHealth -= dmg;
-        p.lastAttackerId = proj.ownerId; // Track damage source
-        io.emit('combatEvent', { type: 'damage', x: p.x, z: p.z, amount: Math.round(dmg), color: p.color });
+        p.lastAttackerId = proj.ownerId;
+        // Track damage dealt
+        if (proj.ownerId && players[proj.ownerId]) {
+          players[proj.ownerId].damageDealt = (players[proj.ownerId].damageDealt || 0) + dmg;
+        }
+        io.emit('combatEvent', { type: 'damage', x: p.x, z: p.z, amount: Math.round(dmg), color: p.color, targetId: p.id });
         delete projectiles[projId]; destroyed = true; break;
       }
+    }
+    if (destroyed) continue;
+
+    // Check boss damage
+    if (boss && boss.currentHealth > 0 && (proj.x - boss.x)**2 + (proj.z - boss.z)**2 < (PROJECTILE_RADIUS + boss.radius)**2) {
+      let dmg = getProjectileDamage(proj);
+      const shooter = players[proj.ownerId];
+      if (shooter && shooter.hasBossBuff) dmg *= 2.0;
+      boss.currentHealth -= dmg;
+      boss.lastAttackerId = proj.ownerId;
+      io.emit('combatEvent', { type: 'damage', x: boss.x, z: boss.z, amount: Math.round(dmg), color: '#9933ff' });
+      delete projectiles[projId];
+      destroyed = true;
     }
     if (destroyed) continue;
 
@@ -1191,9 +1262,14 @@ setInterval(() => {
       // Award Bounty
       if (p.lastAttackerId && players[p.lastAttackerId] && !players[p.lastAttackerId].permaDead) {
         bountyQueue[p.lastAttackerId] = (bountyQueue[p.lastAttackerId] || 0) + KILL_BOUNTY_EXP;
+        // Track kill
+        players[p.lastAttackerId].kills = (players[p.lastAttackerId].kills || 0) + 1;
         console.log(`[BOUNTY] ${players[p.lastAttackerId].username} claimed bounty on ${p.username}`);
       }
       p.lastAttackerId = null;
+
+      // Track death
+      p.deaths = (p.deaths || 0) + 1;
 
       if (bases[p.team] && bases[p.team].currentHealth > 0) resetPlayer(p);
       else {
@@ -1213,9 +1289,43 @@ setInterval(() => {
     io.emit('combatEvent', { type: 'death', x: bot.x, z: bot.z, color: '#aaaaaa' });
     if ((bot.bountyExp || 0) > 0 && bot.lastAttackerId && players[bot.lastAttackerId] && !players[bot.lastAttackerId].permaDead) {
       bountyQueue[bot.lastAttackerId] = (bountyQueue[bot.lastAttackerId] || 0) + bot.bountyExp;
+      // Track bot kill
+      players[bot.lastAttackerId].botKills = (players[bot.lastAttackerId].botKills || 0) + 1;
     }
     bots.splice(i, 1);
     if (bot.respawnOnDeath !== false) scheduleBotRespawn();
+  }
+
+  // ── Boss Death ────────────────────────────────────────
+  if (boss && boss.currentHealth <= 0) {
+    io.emit('combatEvent', { type: 'death', x: boss.x, z: boss.z, color: '#9933ff' });
+    if (boss.lastAttackerId && players[boss.lastAttackerId] && !players[boss.lastAttackerId].permaDead) {
+      const attacker = players[boss.lastAttackerId];
+      const winningTeam = attacker.team;
+      io.emit('announcement', `${winningTeam.toUpperCase()} SECURED THE LEVIATHAN!`);
+      console.log(`[BOSS] Team ${winningTeam} defeated the Leviathan!`);
+      
+      // Apply buff to all players on winning team
+      for (const pid in players) {
+        const p = players[pid];
+        if (p.team === winningTeam && !p.permaDead) {
+          p.hasBossBuff = true;
+        }
+      }
+      
+      // Remove buff after 60 seconds
+      setTimeout(() => {
+        for (const pid in players) {
+          const p = players[pid];
+          if (p.team === winningTeam) {
+            p.hasBossBuff = false;
+          }
+        }
+      }, LEVIATHAN_BOSS_BUFF_DURATION_MS);
+    }
+    boss = null;
+    bossTimer = 180; // Reset the 3-minute timer
+    bossShockwaveTimer = 0;
   }
   
   // Process kill bounty Multi-Level-Ups
@@ -1240,6 +1350,28 @@ setInterval(() => {
     p.isStealthed = insideZone && !recentlyExposed;
   }
 
+  // ── Leviathan Boss Logic ────────────────────────────────
+  // Boss Shockwave Attack
+  if (boss && boss.currentHealth > 0) {
+    bossShockwaveTimer -= delta;
+    if (bossShockwaveTimer <= 0) {
+      bossShockwaveTimer = LEVIATHAN_SHOCKWAVE_INTERVAL;
+      // Deal damage to all players within range
+      for (const pid in players) {
+        const p = players[pid];
+        if (p.permaDead || p.isInvincible) continue;
+        const dX = p.x - boss.x;
+        const dZ = p.z - boss.z;
+        const distSq = dX * dX + dZ * dZ;
+        if (distSq <= LEVIATHAN_SHOCKWAVE_RANGE * LEVIATHAN_SHOCKWAVE_RANGE) {
+          p.currentHealth -= LEVIATHAN_SHOCKWAVE_DAMAGE;
+          io.emit('combatEvent', { type: 'damage', x: p.x, z: p.z, amount: LEVIATHAN_SHOCKWAVE_DAMAGE, color: '#9933ff' });
+        }
+      }
+      io.emit('combatEvent', { type: 'bossShockwave', x: boss.x, z: boss.z });
+    }
+  }
+
   const playerSnapshot = {};
   for (const id in players) {
     const p = players[id];
@@ -1248,8 +1380,48 @@ setInterval(() => {
       exp: p.exp, maxExp: p.maxExp, level: p.level, maxHealth: p.maxHealth, currentHealth: p.currentHealth,
       scale: p.scale, permaDead: p.permaDead, isStunned: p.isStunned, isInvincible: p.isInvincible,
       isStealthed: p.isStealthed, isConfused: p.isConfused, isChoosingSkill: !!p.isChoosingSkill,
-      skills: { ...(p.skills || {}) }, rotY: p.rotY
+      skills: { ...(p.skills || {}) }, rotY: p.rotY, hasBossBuff: !!p.hasBossBuff
     };
+  }
+
+  // ── Check for Base Destruction (Game Over) ──
+  if (gameState === 'playing') {
+    const redDestroyed = bases.red.currentHealth <= 0;
+    const blueDestroyed = bases.blue.currentHealth <= 0;
+    
+    if (redDestroyed || blueDestroyed) {
+      gameState = 'gameOver';
+      const winningTeam = redDestroyed ? 'blue' : 'red';
+      const destroyedBasePos = redDestroyed ? { x: bases.red.x, z: bases.red.z } : { x: bases.blue.x, z: bases.blue.z };
+      
+      const scoreboardData = Object.values(players)
+        .filter(p => !p.permaDead)
+        .sort((a, b) => (b.kills || 0) - (a.kills || 0) || (b.damageDealt || 0) - (a.damageDealt || 0))
+        .map(p => ({
+          id: p.id,
+          username: p.username,
+          team: p.team,
+          classType: p.classType,
+          kills: p.kills || 0,
+          deaths: p.deaths || 0,
+          botKills: p.botKills || 0,
+          damageDealt: p.damageDealt || 0,
+          level: p.level || 1
+        }));
+      
+      io.emit('gameOver', { 
+        winningTeam, 
+        scoreboardData, 
+        destroyedBasePos 
+      });
+      
+      // Schedule reset for 15 seconds
+      setTimeout(() => {
+        resetMatch();
+      }, 15000);
+      
+      console.log(`[GAME OVER] Team ${winningTeam} wins!`);
+    }
   }
 
   io.emit('stateUpdate', {
@@ -1272,6 +1444,7 @@ setInterval(() => {
       currentHealth: bot.currentHealth,
       scale: bot.scale,
       color: bot.color,
+      team: bot.team || null,
       ownerId: bot.ownerId || null,
       ownerTeam: bot.ownerTeam || null,
       isSummon: !!bot.isSummon,
@@ -1286,8 +1459,29 @@ setInterval(() => {
       ownerId: turret.ownerId,
     })),
     bases: { red: { ...bases.red }, blue: { ...bases.blue } },
+    boss: boss ? { id: boss.id, maxHealth: boss.maxHealth, currentHealth: boss.currentHealth, x: boss.x, z: boss.z, radius: boss.radius } : null,
   });
 }, 1000 / TICK_RATE);
+
+// ── Boss Timer (1 second tick) ────────────────────
+setInterval(() => {
+  if (boss === null) {
+    bossTimer -= 1;
+    if (bossTimer <= 0) {
+      boss = {
+        id: 'leviathan',
+        maxHealth: LEVIATHAN_MAX_HEALTH,
+        currentHealth: LEVIATHAN_MAX_HEALTH,
+        x: LEVIATHAN_SPAWN_X,
+        z: LEVIATHAN_SPAWN_Z,
+        radius: LEVIATHAN_RADIUS,
+      };
+      bossShockwaveTimer = LEVIATHAN_SHOCKWAVE_INTERVAL;
+      io.emit('announcement', 'THE LEVIATHAN HAS SPAWNED!');
+      console.log('[BOSS] The Leviathan has spawned!');
+    }
+  }
+}, 1000);
 
 server.listen(PORT, () => console.log(`[SERVER] Game server running on http://localhost:${PORT}`));
 

@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const SERVER_URL = 'http://localhost:3000';
@@ -11,6 +16,8 @@ const WORLD_BOUNDARY = FLOOR_SIZE / 2;
 // ── Game State ──────────────────────────────────────────────────────────────
 let myId = null;
 let inGame = false;
+let isGameOver = false;
+let gameOverData = null;
 
 // ── Socket.io ───────────────────────────────────────────────────────────────
 const socket = io(SERVER_URL);
@@ -18,46 +25,97 @@ socket.on('assignId', (id) => { myId = id; });
 
 // ── Three.js Scene ──────────────────────────────────────────────────────────
 const scene    = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a0f);
-scene.fog      = new THREE.FogExp2(0x0a0a0f, 0.012);
+scene.background = new THREE.Color(0x87ceeb);
+scene.fog      = new THREE.FogExp2(0x87ceeb, 0.0035);
 
 const camera   = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 500);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 // ── Lighting ────────────────────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0x8899bb, 0.5));
+scene.add(new THREE.AmbientLight(0xffffff, 0.58));
 
-const dirLight = new THREE.DirectionalLight(0xffeedd, 1.2);
-dirLight.position.set(10, 20, 10);
+const dirLight = new THREE.DirectionalLight(0xffffff, 2.25);
+dirLight.position.set(38, 64, 28);
 dirLight.castShadow = true;
 dirLight.shadow.mapSize.width = 2048;
 dirLight.shadow.mapSize.height = 2048;
 dirLight.shadow.camera.near = 0.5;
-dirLight.shadow.camera.far = 80;
-dirLight.shadow.camera.left = -50;
-dirLight.shadow.camera.right = 50;
-dirLight.shadow.camera.top = 50;
-dirLight.shadow.camera.bottom = -50;
+dirLight.shadow.camera.far = 260;
+dirLight.shadow.camera.left = -180;
+dirLight.shadow.camera.right = 180;
+dirLight.shadow.camera.top = 180;
+dirLight.shadow.camera.bottom = -180;
 scene.add(dirLight);
+const composer = new EffectComposer(renderer);
+composer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
 
-scene.add(new THREE.HemisphereLight(0x4488cc, 0x223344, 0.3));
+const outlineObjects = [];
+const outlinePass = new OutlinePass(new THREE.Vector2(innerWidth, innerHeight), scene, camera);
+outlinePass.edgeStrength = 3.6;
+outlinePass.edgeGlow = 0.0;
+outlinePass.edgeThickness = 2.0;
+outlinePass.visibleEdgeColor.set('#000000');
+outlinePass.hiddenEdgeColor.set('#000000');
+outlinePass.pulsePeriod = 0;
+outlinePass.usePatternTexture = false;
+outlinePass.selectedObjects = outlineObjects;
+composer.addPass(outlinePass);
+
+const gammaPass = new ShaderPass(GammaCorrectionShader);
+composer.addPass(gammaPass);
+
+function registerOutlineObject(mesh) {
+  if (!mesh || outlineObjects.includes(mesh)) return;
+  outlineObjects.push(mesh);
+  outlinePass.selectedObjects = outlineObjects;
+}
+
+function unregisterOutlineObject(mesh) {
+  if (!mesh) return;
+  const idx = outlineObjects.indexOf(mesh);
+  if (idx === -1) return;
+  outlineObjects.splice(idx, 1);
+  outlinePass.selectedObjects = outlineObjects;
+}
 
 // ── Floor ───────────────────────────────────────────────────────────────────
 const floorGeo = new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE);
-const floorMat = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.85, metalness: 0.15 });
+const floorMat = new THREE.MeshToonMaterial({ color: 0x4c7f2e });
 const floor = new THREE.Mesh(floorGeo, floorMat);
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-const gridHelper = new THREE.GridHelper(FLOOR_SIZE, GRID_DIVISIONS, 0x222233, 0x191925);
+const gridHelper = new THREE.GridHelper(FLOOR_SIZE, GRID_DIVISIONS, 0x000000, 0x000000);
 gridHelper.position.y = 0.01;
+gridHelper.material.opacity = 0.65;
+gridHelper.material.transparent = true;
 scene.add(gridHelper);
+
+const dustCount = 500;
+const dustGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+const dustMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+const dustMesh = new THREE.InstancedMesh(dustGeo, dustMat, dustCount);
+dustMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+const dustPositions = [];
+const dummy = new THREE.Object3D();
+for (let i = 0; i < dustCount; i++) {
+  const x = (Math.random() * 2 - 1) * WORLD_BOUNDARY;
+  const z = (Math.random() * 2 - 1) * WORLD_BOUNDARY;
+  const y = Math.random() * 20 + 0.2;
+  dustPositions.push({ x, y, z });
+  dummy.position.set(x, y, z);
+  dummy.updateMatrix();
+  dustMesh.setMatrixAt(i, dummy.matrix);
+}
+scene.add(dustMesh);
 
 // ── Geometries ──────────────────────────────────────────────────────────────
 const geoCache = {
@@ -72,22 +130,19 @@ const geoCache = {
 };
 
 const TEAM_COLORS = {
-  red:  new THREE.Color(0xff4444),
-  blue: new THREE.Color(0x4488ff),
+  red:  new THREE.Color(0xff2d3d),
+  blue: new THREE.Color(0x1f66ff),
 };
+const BOT_COLOR = new THREE.Color(0xff9f1a);
 
 const mapState = { walls: [], stealthZones: [] };
 const wallMeshes = [];
 const stealthZoneMeshes = [];
-const wallMaterial = new THREE.MeshStandardMaterial({
-  color: 0x2a2f36,
-  roughness: 0.35,
-  metalness: 0.85,
+const wallMaterial = new THREE.MeshToonMaterial({
+  color: 0x2f3b4f,
 });
-const stealthZoneMaterial = new THREE.MeshStandardMaterial({
+const stealthZoneMaterial = new THREE.MeshToonMaterial({
   color: 0x113311,
-  roughness: 1.0,
-  metalness: 0.05,
   transparent: true,
   opacity: 0.3,
   side: THREE.DoubleSide,
@@ -97,13 +152,20 @@ const stealthZoneMaterial = new THREE.MeshStandardMaterial({
 function clearEnvironmentMeshes() {
   while (wallMeshes.length > 0) {
     const mesh = wallMeshes.pop();
+    unregisterOutlineObject(mesh);
     scene.remove(mesh);
     mesh.geometry.dispose();
+    if (mesh.material) mesh.material.dispose();
   }
   while (stealthZoneMeshes.length > 0) {
-    const mesh = stealthZoneMeshes.pop();
-    scene.remove(mesh);
-    mesh.geometry.dispose();
+    const group = stealthZoneMeshes.pop();
+    scene.remove(group);
+    group.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.geometry.dispose();
+        if (obj.material) obj.material.dispose();
+      }
+    });
   }
 }
 
@@ -121,17 +183,37 @@ function buildEnvironmentGeometry(walls, stealthZones) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
+    registerOutlineObject(mesh);
     wallMeshes.push(mesh);
   }
 
   for (const zone of mapState.stealthZones) {
     const radius = Number(zone.radius) || 1;
-    const geo = new THREE.CylinderGeometry(radius, radius, 0.12, 36);
-    const mesh = new THREE.Mesh(geo, stealthZoneMaterial);
-    mesh.position.set(Number(zone.x) || 0, 0.06, Number(zone.z) || 0);
-    mesh.receiveShadow = false;
-    scene.add(mesh);
-    stealthZoneMeshes.push(mesh);
+    const group = new THREE.Group();
+    const discGeo = new THREE.CylinderGeometry(radius, radius, 0.08, 48);
+    const discMat = new THREE.MeshToonMaterial({ color: 0x09120f, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
+    const disc = new THREE.Mesh(discGeo, discMat);
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.y = 0.06;
+    group.add(disc);
+
+    const ringPoints = [];
+    const segments = 64;
+    for (let i = 0; i <= segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+      ringPoints.push(new THREE.Vector3(Math.cos(angle) * radius * 1.08, 0.3, Math.sin(angle) * radius * 1.08));
+    }
+    const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPoints);
+    const ringMat = new THREE.LineDashedMaterial({ color: 0x8e44ad, dashSize: 0.4, gapSize: 0.3, linewidth: 1, transparent: true, opacity: 0.8 });
+    const ring = new THREE.Line(ringGeo, ringMat);
+    ring.computeLineDistances();
+    ring.position.y = 0.3;
+    ring.userData.rotateSpeed = 0.003 + Math.random() * 0.002;
+    group.add(ring);
+
+    group.position.set(Number(zone.x) || 0, 0, Number(zone.z) || 0);
+    scene.add(group);
+    stealthZoneMeshes.push(group);
   }
 }
 
@@ -140,12 +222,10 @@ const playerMeshes = {};
 const nametagsContainer = document.getElementById('nametags-container');
 const nametags = {};
 const skillSpikeGeometry = new THREE.TetrahedronGeometry(0.12, 0);
-const skillSpikeMaterial = new THREE.MeshStandardMaterial({
+const skillSpikeMaterial = new THREE.MeshToonMaterial({
   color: 0xc9d4de,
   emissive: new THREE.Color(0x7f8c99),
   emissiveIntensity: 0.3,
-  roughness: 0.3,
-  metalness: 0.85,
 });
 
 function ensureSkillSpikes(mesh) {
@@ -194,31 +274,142 @@ function applySkillVFX(mesh, playerState) {
   setSkillSpikeVisibility(mesh, spikeLevel > 0 && !isStealthed, spikeLevel);
 
   if (arcaneLevel > 0 && mesh.material) {
-    mesh.material.emissiveIntensity += Math.min(0.3, arcaneLevel * 0.05);
+    mesh.material.emissiveIntensity = Math.min(1.0, (mesh.material.emissiveIntensity || 0) + arcaneLevel * 0.05);
   }
 
   return scaleMultiplier;
 }
 
-function createPlayerMesh(id, data) {
-  const type = data.type || 'cube';
-  const geo = geoCache[type] || geoCache.cube;
-  const teamColor = TEAM_COLORS[data.team] || new THREE.Color(0xffffff);
-
-  const mat = new THREE.MeshStandardMaterial({
-    color: teamColor, roughness: 0.4, metalness: 0.3,
-    emissive: teamColor, emissiveIntensity: 0.2,
+function createCharacterGroup(type, teamColor) {
+  const group = new THREE.Group();
+  let bodyMesh;
+  const bodyMat = new THREE.MeshToonMaterial({
+    color: teamColor,
+    emissive: teamColor,
+    emissiveIntensity: 0.2,
+  });
+  const darkMat = new THREE.MeshToonMaterial({
+    color: new THREE.Color(0x1a1a1a),
+    emissive: new THREE.Color(0x000000),
+    emissiveIntensity: 0.1,
+  });
+  const glowMat = new THREE.MeshToonMaterial({
+    color: new THREE.Color(0xffff8f),
+    emissive: new THREE.Color(0xffff8f),
+    emissiveIntensity: 0.85,
   });
 
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true; mesh.receiveShadow = true;
-  mesh.position.set(data.x, data.y, data.z);
+  switch (type) {
+    case 'cube': {
+      bodyMesh = new THREE.Mesh(geoCache.cube, bodyMat);
+      const padGeo = new THREE.BoxGeometry(0.35, 0.15, 0.35);
+      for (const offset of [[0.5, 0.35, 0.5], [-0.5, 0.35, 0.5], [0.5, 0.35, -0.5], [-0.5, 0.35, -0.5]]) {
+        const pad = new THREE.Mesh(padGeo, darkMat);
+        pad.position.set(...offset);
+        group.add(pad);
+      }
+      break;
+    }
+    case 'pyramid': {
+      bodyMesh = new THREE.Mesh(new THREE.TetrahedronGeometry(0.7, 0), bodyMat);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 10), glowMat);
+      eye.position.set(0, 0, 0.55);
+      group.add(eye);
+      break;
+    }
+    case 'icosahedron': {
+      bodyMesh = new THREE.Mesh(geoCache.icosahedron, bodyMat);
+      const ringA = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.05, 32), new THREE.MeshToonMaterial({ color: 0x9b59b6, emissive: 0x9b59b6, emissiveIntensity: 0.4, side: THREE.DoubleSide }));
+      ringA.rotation.x = Math.PI / 2;
+      ringA.position.y = 0.1;
+      const ringB = new THREE.Mesh(new THREE.RingGeometry(1.25, 1.4, 32), new THREE.MeshToonMaterial({ color: 0xa29bfe, emissive: 0xa29bfe, emissiveIntensity: 0.35, side: THREE.DoubleSide }));
+      ringB.rotation.y = Math.PI / 2;
+      ringB.position.y = 0.05;
+      group.add(ringA, ringB);
+      bodyMesh.userData.magicRings = [ringA, ringB];
+      break;
+    }
+    case 'torus': {
+      bodyMesh = new THREE.Mesh(geoCache.torus, bodyMat);
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), glowMat);
+      orb.position.set(0, 0, 0);
+      group.add(orb);
+      bodyMesh.userData.pulseOrb = orb;
+      break;
+    }
+    case 'octahedron': {
+      bodyMesh = new THREE.Mesh(geoCache.octahedron, bodyMat);
+      const bladeGeo = new THREE.BoxGeometry(0.1, 0.35, 0.05);
+      for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+        const blade = new THREE.Mesh(bladeGeo, darkMat);
+        blade.position.set(Math.cos(angle) * 0.5, 0, Math.sin(angle) * 0.5);
+        blade.rotation.y = angle;
+        group.add(blade);
+      }
+      break;
+    }
+    case 'hexagon': {
+      bodyMesh = new THREE.Mesh(geoCache.hexagon, bodyMat);
+      for (let i = 0; i < 3; i++) {
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), glowMat);
+        const angle = (Math.PI * 2 * i) / 3;
+        orb.position.set(Math.cos(angle) * 0.55, 0.12, Math.sin(angle) * 0.55);
+        group.add(orb);
+      }
+      break;
+    }
+    case 'dodecahedron': {
+      bodyMesh = new THREE.Mesh(geoCache.dodecahedron, bodyMat);
+      const spikeGeo = new THREE.ConeGeometry(0.08, 0.3, 6);
+      for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+        const spike = new THREE.Mesh(spikeGeo, glowMat);
+        spike.position.set(Math.cos(angle) * 0.55, 0, Math.sin(angle) * 0.55);
+        spike.rotation.x = Math.PI / 2;
+        spike.rotation.z = angle;
+        group.add(spike);
+      }
+      break;
+    }
+    case 'cylinder': {
+      bodyMesh = new THREE.Mesh(geoCache.cylinder, bodyMat);
+      const boxGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+      for (const offset of [[0.45, 0.15, 0], [-0.45, 0.15, 0], [0, 0.15, 0.45], [0, 0.15, -0.45]]) {
+        const box = new THREE.Mesh(boxGeo, darkMat);
+        box.position.set(...offset);
+        group.add(box);
+      }
+      const core = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 10), glowMat);
+      core.position.set(0, 0.15, 0);
+      group.add(core);
+      break;
+    }
+    default: {
+      bodyMesh = new THREE.Mesh(geoCache.cube, bodyMat);
+      break;
+    }
+  }
+
+  bodyMesh.castShadow = true;
+  bodyMesh.receiveShadow = true;
+  group.add(bodyMesh);
+  return { group, bodyMesh };
+}
+
+function createPlayerMesh(id, data) {
+  const type = data.type || 'cube';
+  const teamColor = TEAM_COLORS[data.team] || new THREE.Color(0xffffff);
+  const { group, bodyMesh } = createCharacterGroup(type, teamColor);
 
   const s = data.scale || 1;
-  mesh.scale.set(s, s, s);
-  scene.add(mesh);
+  group.position.set(data.x, data.y, data.z);
+  group.scale.set(s, s, s);
+  scene.add(group);
+  registerOutlineObject(group);
 
-  // Nametag HTML
+  // Add custom properties to identify this as a player mesh for raycasting/damage tracking
+  group.userData.isPlayer = true;
+  group.userData.playerId = id;
+
   const tagEl = document.createElement('div');
   tagEl.className = 'nametag visible';
   tagEl.textContent = data.username || 'Anonymous';
@@ -226,17 +417,36 @@ function createPlayerMesh(id, data) {
   nametags[id] = tagEl;
 
   playerMeshes[id] = {
-    mesh, targetPos: new THREE.Vector3(data.x, data.y, data.z),
-    targetScale: s, targetRotY: data.rotY || 0,
-    currentType: type, team: data.team, isStealthed: false, skillScaleMultiplier: 1,
+    mesh: group,
+    bodyMesh,
+    targetPos: new THREE.Vector3(data.x, data.y, data.z),
+    targetScale: s,
+    targetRotY: data.rotY || 0,
+    currentType: type,
+    team: data.team,
+    isStealthed: false,
+    skillScaleMultiplier: 1,
+    buffRing: null,
   };
 }
 
 function removePlayerMesh(id) {
   const entry = playerMeshes[id];
   if (entry) {
+    unregisterOutlineObject(entry.mesh);
     scene.remove(entry.mesh);
-    entry.mesh.material.dispose();
+    entry.mesh.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.geometry.dispose();
+        if (obj.material) obj.material.dispose();
+      }
+    });
+    if (entry.buffRing) {
+      scene.remove(entry.buffRing);
+      entry.buffRing.geometry.dispose();
+      entry.buffRing.material.dispose();
+      entry.buffRing = null;
+    }
     delete playerMeshes[id];
   }
   const tagEl = nametags[id];
@@ -249,7 +459,7 @@ function removePlayerMesh(id) {
 // ── Orb && Projectile Entity Management ──────────────────────────────────────
 const orbMeshes = {};
 const orbGeo = new THREE.OctahedronGeometry(0.3, 0);
-const orbMat = new THREE.MeshStandardMaterial({ color: 0xf39c12, emissive: 0xf39c12, emissiveIntensity: 0.6, roughness: 0.2, metalness: 0.8 });
+const orbMat = new THREE.MeshToonMaterial({ color: 0xf39c12, emissive: 0xf39c12, emissiveIntensity: 0.6 });
 
 function createOrbMesh(id, data) {
   const mesh = new THREE.Mesh(orbGeo, orbMat);
@@ -269,21 +479,20 @@ function createProjMesh(id, data) {
   const kind = data.kind || 'normal';
   const color = data.ownerColor || '#74b9ff';
   const emissiveBoost = kind === 'turret_shot' ? 0.65 : (kind === 'summoner_homing' ? 0.85 : 1.0);
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshToonMaterial({
     color: new THREE.Color(color),
     emissive: new THREE.Color(color),
-    emissiveIntensity: emissiveBoost,
-    roughness: 0.1,
-    metalness: 0.9
+    emissiveIntensity: emissiveBoost
   });
   const mesh = new THREE.Mesh(projGeo, mat);
   mesh.position.set(data.x, 0.5, data.z);
   scene.add(mesh);
+  registerOutlineObject(mesh);
   projMeshes[id] = { mesh, targetX: data.x, targetZ: data.z, kind };
 }
 function removeProjMesh(id) {
   const entry = projMeshes[id];
-  if (!entry) return; scene.remove(entry.mesh); entry.mesh.material.dispose(); delete projMeshes[id];
+  if (!entry) return; unregisterOutlineObject(entry.mesh); scene.remove(entry.mesh); entry.mesh.material.dispose(); delete projMeshes[id];
 }
 
 // ── Base Entity Management ──────────────────────────────────────────────────
@@ -317,19 +526,41 @@ function createBotHealthUi() {
 
 function createBotMesh(id, data) {
   const scale = Number(data.scale) || 1;
-  const mat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(0x8b8b8b),
-    roughness: 0.55,
-    metalness: 0.2,
-    emissive: new THREE.Color(0x3a3a3a),
-    emissiveIntensity: 0.25,
-  });
-  const mesh = new THREE.Mesh(botGeo, mat);
+  let botMaterial;
+  
+  // Determine color based on team property (for Summoner pets)
+  if (data.team === 'red') {
+    botMaterial = new THREE.MeshToonMaterial({
+      color: new THREE.Color(0xff2d3d),
+      emissive: new THREE.Color(0xff2d3d),
+      emissiveIntensity: 0.8,
+    });
+  } else if (data.team === 'blue') {
+    botMaterial = new THREE.MeshToonMaterial({
+      color: new THREE.Color(0x1f66ff),
+      emissive: new THREE.Color(0x1f66ff),
+      emissiveIntensity: 0.8,
+    });
+  } else {
+    // Default grey for neutral bots
+    botMaterial = new THREE.MeshToonMaterial({
+      color: BOT_COLOR,
+      emissive: BOT_COLOR.clone().multiplyScalar(0.26),
+      emissiveIntensity: 0.35,
+    });
+  }
+  
+  const mesh = new THREE.Mesh(botGeo, botMaterial);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.position.set(Number(data.x) || 0, 0.8 * scale, Number(data.z) || 0);
   mesh.scale.set(scale, scale, scale);
   scene.add(mesh);
+  registerOutlineObject(mesh);
+
+  // Add custom properties for damage tracking
+  mesh.userData.isBot = true;
+  mesh.userData.botId = id;
 
   const healthUi = createBotHealthUi();
   botMeshes[id] = {
@@ -346,6 +577,7 @@ function createBotMesh(id, data) {
 function removeBotMesh(id) {
   const entry = botMeshes[id];
   if (!entry) return;
+  unregisterOutlineObject(entry.mesh);
   scene.remove(entry.mesh);
   entry.mesh.material.dispose();
   if (entry.healthRoot) entry.healthRoot.remove();
@@ -355,12 +587,10 @@ function removeBotMesh(id) {
 const turretMeshes = {};
 const turretGeo = new THREE.CylinderGeometry(0.5, 0.85, 1.2, 12);
 function createTurretMesh(id, data) {
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshToonMaterial({
     color: new THREE.Color(data.color || '#f39c12'),
     emissive: new THREE.Color(data.color || '#f39c12'),
     emissiveIntensity: 0.35,
-    roughness: 0.35,
-    metalness: 0.65,
   });
   const mesh = new THREE.Mesh(turretGeo, mat);
   const scale = Number(data.scale) || 1;
@@ -369,6 +599,7 @@ function createTurretMesh(id, data) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
+  registerOutlineObject(mesh);
   turretMeshes[id] = {
     mesh,
     targetPos: new THREE.Vector3(Number(data.x) || 0, 0.8 * scale, Number(data.z) || 0),
@@ -379,23 +610,93 @@ function createTurretMesh(id, data) {
 function removeTurretMesh(id) {
   const entry = turretMeshes[id];
   if (!entry) return;
+  unregisterOutlineObject(entry.mesh);
   scene.remove(entry.mesh);
   entry.mesh.material.dispose();
   delete turretMeshes[id];
+}
+
+// ── Boss Mesh Management ────────────────────────────────────
+const bossMeshData = { mesh: null, ring: null };
+function createBossMesh(data) {
+  if (!data || !data.id) return;
+  
+  // Remove old boss mesh if exists
+  if (bossMeshData.mesh) {
+    unregisterOutlineObject(bossMeshData.mesh);
+    scene.remove(bossMeshData.mesh);
+    bossMeshData.mesh.geometry.dispose();
+    bossMeshData.mesh.material.dispose();
+    bossMeshData.mesh = null;
+  }
+  if (bossMeshData.ring) {
+    scene.remove(bossMeshData.ring);
+    bossMeshData.ring.geometry.dispose();
+    bossMeshData.ring.material.dispose();
+    bossMeshData.ring = null;
+  }
+
+  // Create main boss icosahedron (scale 8)
+  const bossMaterial = new THREE.MeshToonMaterial({
+    color: new THREE.Color(0x330066),
+    emissive: new THREE.Color(0x1a0033),
+    emissiveIntensity: 0.5,
+  });
+  const bossGeo = new THREE.IcosahedronGeometry(1, 2);
+  const bossMesh = new THREE.Mesh(bossGeo, bossMaterial);
+  bossMesh.scale.set(8, 8, 8);
+  bossMesh.position.set(data.x, 4, data.z);
+  bossMesh.castShadow = true;
+  bossMesh.receiveShadow = true;
+  scene.add(bossMesh);
+  registerOutlineObject(bossMesh);
+  bossMeshData.mesh = bossMesh;
+
+  // Create rotating ring around boss
+  const ringGeo = new THREE.TorusGeometry(12, 0.5, 8, 32);
+  const ringMat = new THREE.MeshToonMaterial({
+    color: new THREE.Color(0x6600cc),
+    emissive: new THREE.Color(0x6600cc),
+    emissiveIntensity: 0.6,
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = Math.PI * 0.3;
+  ring.position.set(data.x, 4, data.z);
+  scene.add(ring);
+  registerOutlineObject(ring);
+  bossMeshData.ring = ring;
+}
+
+function removeBossMesh() {
+  if (bossMeshData.mesh) {
+    unregisterOutlineObject(bossMeshData.mesh);
+    scene.remove(bossMeshData.mesh);
+    bossMeshData.mesh.geometry.dispose();
+    bossMeshData.mesh.material.dispose();
+    bossMeshData.mesh = null;
+  }
+  if (bossMeshData.ring) {
+    scene.remove(bossMeshData.ring);
+    bossMeshData.ring.geometry.dispose();
+    bossMeshData.ring.material.dispose();
+    bossMeshData.ring = null;
+  }
 }
 
 const baseMeshes = {};
 function createBaseMesh(teamKey, data) {
   const teamColor = TEAM_COLORS[teamKey];
   const geo = new THREE.CylinderGeometry(data.scale, data.scale, 3, 16);
-  const mat = new THREE.MeshStandardMaterial({ color: teamColor, emissive: teamColor, emissiveIntensity: 0.3, roughness: 0.5, metalness: 0.4, transparent: true, opacity: 0.7 });
+  const mat = new THREE.MeshToonMaterial({ color: teamColor, emissive: teamColor, emissiveIntensity: 0.3, transparent: true, opacity: 0.7 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(data.x, 1.5, data.z); mesh.castShadow = true; mesh.receiveShadow = true; scene.add(mesh);
+  registerOutlineObject(mesh);
 
   const ringGeo = new THREE.TorusGeometry(data.scale + 0.5, 0.15, 8, 32);
-  const ringMat = new THREE.MeshStandardMaterial({ color: teamColor, emissive: teamColor, emissiveIntensity: 0.5, roughness: 0.2, metalness: 0.8 });
+  const ringMat = new THREE.MeshToonMaterial({ color: teamColor, emissive: teamColor, emissiveIntensity: 0.5 });
   const ring = new THREE.Mesh(ringGeo, ringMat);
   ring.rotation.x = -Math.PI / 2; ring.position.set(data.x, 0.05, data.z); scene.add(ring);
+  registerOutlineObject(ring);
   baseMeshes[teamKey] = { mesh, ring, mat, initialOpacity: 0.7 };
 }
 
@@ -414,9 +715,9 @@ const particleGeo = new THREE.TetrahedronGeometry(0.3, 0);
 
 function spawnParticle(x, z, colorStr) {
   const c = new THREE.Color(colorStr);
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshToonMaterial({
     color: c, emissive: c, emissiveIntensity: 0.8,
-    transparent: true, opacity: 1, roughness: 0.2, metalness: 0.8
+    transparent: true, opacity: 1
   });
   const mesh = new THREE.Mesh(particleGeo, mat);
   mesh.position.set(x, 0.5, z);
@@ -427,6 +728,29 @@ function spawnParticle(x, z, colorStr) {
   
   scene.add(mesh);
   activeParticles.push({ mesh, vx, vy, vz, life: 1.0 });
+}
+
+// ── Hit Flash Effect ────────────────────────────────────────────────────────
+function flashHit(targetMesh) {
+  if (!targetMesh) return;
+  
+  const originalMaterials = [];
+  
+  // Traverse and save original materials, then apply white flash
+  targetMesh.traverse((obj) => {
+    if (obj.isMesh && obj.material) {
+      originalMaterials.push({ obj, originalMaterial: obj.material });
+      const whiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      obj.material = whiteMat;
+    }
+  });
+  
+  // Revert to original materials after 100ms
+  setTimeout(() => {
+    originalMaterials.forEach(({ obj, originalMaterial }) => {
+      obj.material = originalMaterial;
+    });
+  }, 100);
 }
 
 // ── DOM Elements ────────────────────────────────────────────────────────────
@@ -449,6 +773,16 @@ const skillCardButtons = [
 
 const hudUltimate = document.getElementById('hud-ultimate');
 const hudUltimateFill = document.getElementById('hud-ultimate-fill');
+
+const hudBoss = document.getElementById('hud-boss');
+const hudBossBar = document.getElementById('hud-boss-bar');
+const hudBossText = document.getElementById('hud-boss-text');
+const announcementContainer = document.getElementById('announcement-container');
+
+// Endgame UI
+const endgameScreen = document.getElementById('endgame-screen');
+const victoryText = document.getElementById('victory-text');
+const scoreboardBody = document.getElementById('endgame-scoreboard-body');
 
 // Global Variables
 const EMOTES = { '1': '😀', '2': '😡', '3': '🔥' };
@@ -675,6 +1009,17 @@ socket.on('ultimateCast', (data) => {
   }
 });
 
+socket.on('announcement', (text) => {
+  if (!inGame) return;
+  const el = document.createElement('div');
+  el.className = 'announcement';
+  el.textContent = text;
+  announcementContainer.appendChild(el);
+  setTimeout(() => {
+    el.remove();
+  }, 4000);
+});
+
 socket.on('socialEvent', (payload) => {
   if (!inGame) return;
   const el = document.createElement('div');
@@ -704,6 +1049,15 @@ socket.on('combatEvent', (ev) => {
   if (!inGame) return;
 
   if (ev.type === 'damage') {
+    // Trigger hit flash on the damaged entity
+    if (ev.targetId) {
+      if (playerMeshes[ev.targetId]) {
+        flashHit(playerMeshes[ev.targetId].mesh);
+      } else if (botMeshes[ev.targetId]) {
+        flashHit(botMeshes[ev.targetId].mesh);
+      }
+    }
+    
     const el = document.createElement('span');
     el.className = 'dmg-text';
     el.textContent = `-${ev.amount}`;
@@ -757,6 +1111,66 @@ socket.on('combatEvent', (ev) => {
   }
 });
 
+socket.on('gameOver', (data) => {
+  if (!inGame) return;
+  isGameOver = true;
+  gameOverData = data;
+  shakeIntensity = 3.0; // Massive screen shake on base destruction
+  
+  // Show the endgame screen after 3 seconds (letting players watch the destruction)
+  setTimeout(() => {
+    const endgameScreen = document.getElementById('endgame-screen');
+    const victoryText = document.getElementById('victory-text');
+    const scoreboardBody = document.getElementById('endgame-scoreboard-body');
+    
+    const isVictory = (myId && gameOverData.scoreboardData.find(p => p.id === myId)?.team === gameOverData.winningTeam);
+    victoryText.className = isVictory ? 'victory' : 'defeat';
+    victoryText.textContent = isVictory ? 'VICTORY!' : 'DEFEAT!';
+    
+    // Populate scoreboard
+    scoreboardBody.innerHTML = '';
+    gameOverData.scoreboardData.forEach(p => {
+      const row = document.createElement('div');
+      row.className = 'scoreboard-row';
+      row.innerHTML = `
+        <div class="sb-col sb-name" style="color: ${p.team === 'red' ? '#ff2d3d' : '#1f66ff'}">${p.username}</div>
+        <div class="sb-col sb-class">${p.classType}</div>
+        <div class="sb-col sb-kills">${p.kills}</div>
+        <div class="sb-col sb-deaths">${p.deaths}</div>
+        <div class="sb-col sb-botkills">${p.botKills}</div>
+        <div class="sb-col sb-damage">${Math.round(p.damageDealt)}</div>
+      `;
+      scoreboardBody.appendChild(row);
+    });
+    
+    endgameScreen.classList.add('visible');
+    
+    // Countdown timer
+    let secondsLeft = 15;
+    const timerInterval = setInterval(() => {
+      secondsLeft--;
+      const timerEl = document.getElementById('countdown-timer');
+      if (timerEl) timerEl.textContent = secondsLeft;
+      if (secondsLeft <= 0) clearInterval(timerInterval);
+    }, 1000);
+  }, 3000);
+});
+
+socket.on('gameReset', () => {
+  isGameOver = false;
+  gameOverData = null;
+  
+  const endgameScreen = document.getElementById('endgame-screen');
+  if (endgameScreen) endgameScreen.classList.remove('visible');
+  
+  // Clear particles and reset state  
+  while (activeParticles.length > 0) activeParticles.pop();
+  while (ultimateVFX.length > 0) ultimateVFX.pop();
+  while (bhParticles.length > 0) bhParticles.pop();
+  
+  console.log('[CLIENT] Game reset - new match starting');
+});
+
 socket.on('stateUpdate', (state) => {
   const { players: playerData, orbs: orbData, projectiles: projData, bots: botData = [], turrets: turretData = [], bases: baseData } = state;
 
@@ -784,23 +1198,24 @@ socket.on('stateUpdate', (state) => {
 
     if (nametags[id]) nametags[id].textContent = data.username;
 
+    const body = entry.bodyMesh;
     if (data.isInvincible) {
-      entry.mesh.material.emissiveIntensity = 1.0;
-      entry.mesh.material.emissive = new THREE.Color(0xf1c40f);
+      body.material.emissiveIntensity = 1.0;
+      body.material.emissive = new THREE.Color(0xf1c40f);
     } else if (data.isStunned) {
-      entry.mesh.material.emissiveIntensity = 0.8;
-      entry.mesh.material.emissive = new THREE.Color(0x9b59b6);
+      body.material.emissiveIntensity = 0.8;
+      body.material.emissive = new THREE.Color(0x9b59b6);
     } else {
       const tC = TEAM_COLORS[data.team] || new THREE.Color(0xffffff);
-      entry.mesh.material.emissiveIntensity = 0.2;
-      entry.mesh.material.emissive = tC;
+      body.material.emissiveIntensity = 0.2;
+      body.material.emissive = tC;
     }
 
     const isStealthed = !!data.isStealthed;
     entry.isStealthed = isStealthed;
-    entry.mesh.material.transparent = isStealthed;
-    entry.mesh.material.opacity = isStealthed ? 0.15 : 1.0;
-    entry.mesh.material.depthWrite = !isStealthed;
+    body.material.transparent = isStealthed;
+    body.material.opacity = isStealthed ? 0.15 : 1.0;
+    body.material.depthWrite = !isStealthed;
 
     const tagEl = nametags[id];
     if (tagEl) {
@@ -808,11 +1223,38 @@ socket.on('stateUpdate', (state) => {
       tagEl.style.display = hideEnemyUi ? 'none' : 'block';
     }
 
-    const skillScaleMultiplier = applySkillVFX(entry.mesh, data);
+    const skillScaleMultiplier = applySkillVFX(body, data);
     entry.skillScaleMultiplier = skillScaleMultiplier;
     entry.targetPos.set(data.x, data.y, data.z);
     entry.targetScale = (data.scale || 1) * skillScaleMultiplier;
     entry.targetRotY = data.rotY || 0;
+
+    // Handle Boss Buff VFX - Golden ring underneath
+    if (data.hasBossBuff && !entry.buffRing) {
+      const ringGeo = new THREE.RingGeometry(1.5, 1.8, 32);
+      const ringMat = new THREE.MeshToonMaterial({
+        color: new THREE.Color(0xffd700),
+        emissive: new THREE.Color(0xffd700),
+        emissiveIntensity: 0.9,
+        side: THREE.DoubleSide,
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(data.x, 0.05, data.z);
+      ring.userData.playerId = id;
+      scene.add(ring);
+      entry.buffRing = ring;
+    } else if (!data.hasBossBuff && entry.buffRing) {
+      scene.remove(entry.buffRing);
+      entry.buffRing.geometry.dispose();
+      entry.buffRing.material.dispose();
+      entry.buffRing = null;
+    } else if (data.hasBossBuff && entry.buffRing) {
+      // Update ring position
+      entry.buffRing.position.set(data.x, 0.05, data.z);
+      // Rotate the ring
+      entry.buffRing.rotation.z += 0.02;
+    }
   }
   for (const id in playerMeshes) { if (!activePlayerIds.has(id)) removePlayerMesh(id); }
 
@@ -891,6 +1333,32 @@ socket.on('stateUpdate', (state) => {
     else if (blue.currentHealth <= 0 && !gameOverShown) showGameOver('red');
   }
 
+  // ── Boss Handling ──
+  const boss = state.boss;
+  if (boss && boss.id) {
+    if (!bossMeshData.mesh) {
+      createBossMesh(boss);
+    }
+    // Update boss mesh position
+    if (bossMeshData.mesh) {
+      bossMeshData.mesh.position.set(boss.x, 4, boss.z);
+      bossMeshData.mesh.rotation.x += 0.005;
+      bossMeshData.mesh.rotation.y += 0.008;
+    }
+    if (bossMeshData.ring) {
+      bossMeshData.ring.position.set(boss.x, 4, boss.z);
+      bossMeshData.ring.rotation.z += 0.03;
+    }
+    // Update boss UI
+    hudBoss.classList.add('visible');
+    const bossHealthPct = Math.max(0, Math.min(1, boss.currentHealth / boss.maxHealth));
+    hudBossBar.style.width = `${bossHealthPct * 100}%`;
+    hudBossText.textContent = `${Math.max(0, Math.round(boss.currentHealth))} / ${boss.maxHealth}`;
+  } else {
+    if (bossMeshData.mesh) removeBossMesh();
+    hudBoss.classList.remove('visible');
+  }
+
   if (minimapCanvas) {
     const mapCtx = minimapCanvas.getContext('2d');
     const mapW = minimapCanvas.width;
@@ -912,7 +1380,7 @@ socket.on('stateUpdate', (state) => {
         if (b && b.currentHealth > 0) {
           const { cx, cy } = worldToMap(b.x, b.z);
           mapCtx.beginPath(); mapCtx.arc(cx, cy, 8, 0, Math.PI * 2);
-          mapCtx.fillStyle = teamKey === 'red' ? '#ff4444' : '#4488ff';
+          mapCtx.fillStyle = teamKey === 'red' ? '#ff2d3d' : '#1f66ff';
           mapCtx.fill();
         }
       }
@@ -934,7 +1402,7 @@ socket.on('stateUpdate', (state) => {
 
         const { cx, cy } = worldToMap(p.x, p.z);
         mapCtx.beginPath(); mapCtx.arc(cx, cy, isMe ? 4 : 3, 0, Math.PI * 2);
-        mapCtx.fillStyle = p.team === 'red' ? '#ff4444' : '#4488ff';
+        mapCtx.fillStyle = p.team === 'red' ? '#ff2d3d' : '#1f66ff';
         mapCtx.fill();
         if (isMe) { mapCtx.lineWidth = 1.5; mapCtx.strokeStyle = '#fff'; mapCtx.stroke(); }
       }
@@ -945,7 +1413,7 @@ socket.on('stateUpdate', (state) => {
       const { cx, cy } = worldToMap(bot.x, bot.z);
       mapCtx.beginPath();
       mapCtx.arc(cx, cy, 2.5, 0, Math.PI * 2);
-      mapCtx.fillStyle = '#9a9a9a';
+      mapCtx.fillStyle = '#ff9f1a';
       mapCtx.fill();
     }
 
@@ -972,7 +1440,7 @@ socket.on('stateUpdate', (state) => {
     playersArr.slice(0, 5).forEach(p => {
       const li = document.createElement('li');
       li.textContent = `${p.username} - Lvl ${p.level}`;
-      li.style.color = p.team === 'red' ? '#ff6b6b' : '#74b9ff';
+      li.style.color = p.team === 'red' ? '#ff2d3d' : '#1f66ff';
       if (p.id === myId) li.style.fontWeight = '700';
       leaderboardList.appendChild(li);
     });
@@ -986,7 +1454,7 @@ socket.on('stateUpdate', (state) => {
     const me = playerData[myId];
     hudUsernameHeader.textContent = me.username.toUpperCase();
     hudTeam.textContent   = me.team ? me.team.toUpperCase() : '—';
-    hudTeam.style.color   = me.team === 'red' ? '#ff6b6b' : '#74b9ff';
+    hudTeam.style.color   = me.team === 'red' ? '#ff2d3d' : '#1f66ff';
     hudClass.textContent  = me.classType ? me.classType.charAt(0).toUpperCase() + me.classType.slice(1) : '—';
     hudLevel.textContent  = me.level;
 
@@ -1183,7 +1651,7 @@ let gameOverShown = false;
 function showGameOver(winningTeam) {
   gameOverShown = true;
   goTitle.textContent = `${winningTeam.toUpperCase()} TEAM WINS!`;
-  goTitle.style.color = winningTeam === 'red' ? '#ff6b6b' : '#74b9ff';
+  goTitle.style.color = winningTeam === 'red' ? '#ff2d3d' : '#1f66ff';
   goSubtitle.textContent = 'The enemy base has been destroyed!';
   gameOverEl.classList.add('visible');
 }
@@ -1318,6 +1786,22 @@ function animate() {
     mesh.rotation.y = elapsed * 2; mesh.rotation.x = elapsed * 0.5;
     mesh.position.y = 0.5 + Math.sin(elapsed * 3 + mesh.position.x) * 0.15;
   }
+  for (const group of stealthZoneMeshes) {
+    group.children.forEach((child) => {
+      if (child.isLine) {
+        child.rotation.y += child.userData.rotateSpeed || 0.003;
+      }
+    });
+  }
+  for (let i = 0; i < dustCount; i++) {
+    const entry = dustPositions[i];
+    entry.y += 0.02;
+    if (entry.y > 20) entry.y = 0.2;
+    dummy.position.set(entry.x, entry.y, entry.z);
+    dummy.updateMatrix();
+    dustMesh.setMatrixAt(i, dummy.matrix);
+  }
+  dustMesh.instanceMatrix.needsUpdate = true;
   for (const id in projMeshes) {
     const entry = projMeshes[id];
     entry.mesh.position.x += (entry.targetX - entry.mesh.position.x) * 0.5;
@@ -1443,20 +1927,32 @@ function animate() {
       isCameraInitialized = true;
     }
 
-    let angleDifference = localMesh.rotation.y - cameraYaw;
-    angleDifference = (angleDifference + Math.PI * 3) % (Math.PI * 2) - Math.PI;
-    cameraYaw += angleDifference * 0.05;
-
-    rotatedCameraOffset.copy(cameraOffset).applyAxisAngle(worldUp, cameraYaw);
-    cameraTarget.copy(localMesh.position).add(rotatedCameraOffset);
-    idealLookPoint.copy(localMesh.position).add(cameraHeadOffset);
-
-    if (justInitialized) {
-      camera.position.copy(cameraTarget);
-      cameraLookTarget.copy(idealLookPoint);
+    // ── CINEMATIC CAMERA ON GAME OVER ──
+    if (isGameOver && gameOverData) {
+      // Fly camera up and pan to destroyed base
+      const destroyedPos = gameOverData.destroyedBasePos;
+      const targetCamPos = new THREE.Vector3(destroyedPos.x, 100, destroyedPos.z + 50);
+      const targetLookPos = new THREE.Vector3(destroyedPos.x, 5, destroyedPos.z);
+      
+      camera.position.lerp(targetCamPos, 0.02);
+      cameraLookTarget.lerp(targetLookPos, 0.02);
     } else {
-      camera.position.lerp(cameraTarget, cameraLerpSpeed);
-      cameraLookTarget.lerp(idealLookPoint, cameraLerpSpeed);
+      // Normal chase camera
+      let angleDifference = localMesh.rotation.y - cameraYaw;
+      angleDifference = (angleDifference + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+      cameraYaw += angleDifference * 0.05;
+
+      rotatedCameraOffset.copy(cameraOffset).applyAxisAngle(worldUp, cameraYaw);
+      cameraTarget.copy(localMesh.position).add(rotatedCameraOffset);
+      idealLookPoint.copy(localMesh.position).add(cameraHeadOffset);
+
+      if (justInitialized) {
+        camera.position.copy(cameraTarget);
+        cameraLookTarget.copy(idealLookPoint);
+      } else {
+        camera.position.lerp(cameraTarget, cameraLerpSpeed);
+        cameraLookTarget.lerp(idealLookPoint, cameraLerpSpeed);
+      }
     }
 
     if (shakeIntensity > 0.01) {
@@ -1475,11 +1971,16 @@ function animate() {
   emitMoveIntent();
   updateAimIntersection();
 
-  renderer.render(scene, camera);
+  composer.render();
 }
 animate();
 
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  const pixelRatio = Math.min(devicePixelRatio, 1.5);
+  renderer.setPixelRatio(pixelRatio);
+  composer.setPixelRatio(pixelRatio);
   renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  outlinePass.setSize(innerWidth, innerHeight);
 });
