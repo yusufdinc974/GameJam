@@ -5,6 +5,56 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+
+// ── Animated Model State ───────────────────────────────────────────────────
+let loadedCharacterGLTF = null;
+let modelLoadPromise = null;
+const MODEL_SCALE = 1.0;
+const MODEL_Y_OFFSET = 0.0;
+const ATTACK_ANIM_DURATION = 0.6;
+
+const ANIM_NAME_MAP = {
+  'Idle': ['Idle', 'idle', 'IDLE', 'Rest', 'Standing'],
+  'Run':  ['Run', 'run', 'Walk', 'walk', 'Locomotion'],
+  'Attack': ['Attack', 'attack', 'Hit', 'Slash', 'Strike'],
+};
+
+function resolveClipName(clips, desiredName) {
+  const candidates = ANIM_NAME_MAP[desiredName] || [desiredName];
+  for (const name of candidates) {
+    if (clips.find(c => c.name === name)) return name;
+  }
+  return null;
+}
+
+function preloadCharacterModel() {
+  const loader = new GLTFLoader();
+  modelLoadPromise = new Promise((resolve) => {
+    loader.load(
+      'assets/models/character.glb',
+      (gltf) => {
+        gltf.scene.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        loadedCharacterGLTF = gltf;
+        console.log('[MODEL] character.glb loaded successfully, animations:', gltf.animations.map(a => a.name));
+        resolve(true);
+      },
+      undefined,
+      (err) => {
+        console.warn('[MODEL] character.glb not found, using procedural fallback:', err.message || err);
+        loadedCharacterGLTF = null;
+        resolve(false);
+      }
+    );
+  });
+  return modelLoadPromise;
+}
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const SERVER_URL = 'http://localhost:3000';
@@ -16,8 +66,10 @@ const WORLD_BOUNDARY = FLOOR_SIZE / 2;
 // ── Game State ──────────────────────────────────────────────────────────────
 let myId = null;
 let inGame = false;
+let inLobby = true;
 let isGameOver = false;
 let gameOverData = null;
+let selectedCharacter = null;
 
 // ── Socket.io ───────────────────────────────────────────────────────────────
 const socket = io(SERVER_URL);
@@ -404,6 +456,47 @@ function createPlayerMesh(id, data) {
   group.position.set(data.x, data.y, data.z);
   group.scale.set(s, s, s);
   scene.add(group);
+
+  // ── Rigged Model Clone ───────────────────────────────────────────────────
+  let mixer = null;
+  let animActions = {};
+  let currentAnim = 'Idle';
+
+  if (loadedCharacterGLTF) {
+    const clonedScene = SkeletonUtils.clone(loadedCharacterGLTF.scene);
+    clonedScene.scale.setScalar(MODEL_SCALE);
+    clonedScene.position.y = MODEL_Y_OFFSET;
+    group.add(clonedScene);
+
+    // Hide procedural body but keep it for hitbox/physics
+    bodyMesh.visible = false;
+    group.children.forEach(child => {
+      if (child !== clonedScene && child !== bodyMesh) child.visible = false;
+    });
+
+    // Set up AnimationMixer
+    mixer = new THREE.AnimationMixer(clonedScene);
+    const clips = loadedCharacterGLTF.animations;
+    for (const desiredName of ['Idle', 'Run', 'Attack']) {
+      const clipName = resolveClipName(clips, desiredName);
+      if (clipName) {
+        const clip = clips.find(c => c.name === clipName);
+        const action = mixer.clipAction(clip);
+        if (desiredName === 'Attack') {
+          action.setLoop(THREE.LoopOnce);
+          action.clampWhenFinished = true;
+        }
+        animActions[desiredName] = action;
+      }
+    }
+
+    // Start default animation
+    if (animActions['Idle']) {
+      animActions['Idle'].play();
+      currentAnim = 'Idle';
+    }
+  }
+
   registerOutlineObject(group);
 
   // Add custom properties to identify this as a player mesh for raycasting/damage tracking
@@ -427,6 +520,13 @@ function createPlayerMesh(id, data) {
     isStealthed: false,
     skillScaleMultiplier: 1,
     buffRing: null,
+    // Animation fields
+    mixer,
+    animActions,
+    currentAnim,
+    prevPos: new THREE.Vector3(data.x, data.y, data.z),
+    isAttacking: false,
+    attackTimer: 0,
   };
 }
 
@@ -447,6 +547,11 @@ function removePlayerMesh(id) {
       entry.buffRing.material.dispose();
       entry.buffRing = null;
     }
+    // Clean up animation mixer
+    if (entry.mixer) {
+      entry.mixer.stopAllAction();
+      entry.mixer.uncacheRoot(entry.mixer.getRoot());
+    }
     delete playerMeshes[id];
   }
   const tagEl = nametags[id];
@@ -454,6 +559,29 @@ function removePlayerMesh(id) {
     tagEl.remove();
     delete nametags[id];
   }
+}
+
+// ── Animation Crossfade State Machine ──────────────────────────────────────
+function fadeToAction(entry, newActionName, fadeDuration = 0.3) {
+  if (!entry.mixer || !entry.animActions) return;
+  if (entry.currentAnim === newActionName) return;
+
+  const prevAction = entry.animActions[entry.currentAnim];
+  const nextAction = entry.animActions[newActionName];
+  if (!nextAction) return;
+
+  if (prevAction) {
+    prevAction.fadeOut(fadeDuration);
+  }
+
+  nextAction
+    .reset()
+    .setEffectiveTimeScale(1)
+    .setEffectiveWeight(1)
+    .fadeIn(fadeDuration)
+    .play();
+
+  entry.currentAnim = newActionName;
 }
 
 // ── Orb && Projectile Entity Management ──────────────────────────────────────
@@ -1163,11 +1291,18 @@ socket.on('gameReset', () => {
   const endgameScreen = document.getElementById('endgame-screen');
   if (endgameScreen) endgameScreen.classList.remove('visible');
   
-  // Clear particles and reset state  
+  // Clear particles and reset state
   while (activeParticles.length > 0) activeParticles.pop();
   while (ultimateVFX.length > 0) ultimateVFX.pop();
   while (bhParticles.length > 0) bhParticles.pop();
-  
+
+  // Clean up animation mixers
+  for (const id in playerMeshes) {
+    if (playerMeshes[id].mixer) {
+      playerMeshes[id].mixer.stopAllAction();
+    }
+  }
+
   console.log('[CLIENT] Game reset - new match starting');
 });
 
@@ -1608,6 +1743,12 @@ window.addEventListener('click', (e) => {
   ) return;
   updateAimIntersection();
   socket.emit('attack', { targetX: intersection.x, targetZ: intersection.z });
+  // Trigger attack animation on local player
+  if (myId && playerMeshes[myId] && playerMeshes[myId].mixer) {
+    playerMeshes[myId].isAttacking = true;
+    playerMeshes[myId].attackTimer = ATTACK_ANIM_DURATION;
+    fadeToAction(playerMeshes[myId], 'Attack', 0.1);
+  }
 });
 
 // ── Lobby / Game Over ───────────────────────────────────────────────────────
@@ -1625,24 +1766,61 @@ function joinGame(classType) {
     lobbyInput.focus(); return;
   }
   clearSkillChoicesUI();
+  localStorage.setItem('arena_username', val);
   socket.emit('joinGame', { classType, username: val });
   lobbyEl.classList.add('hidden');
   hudStats.classList.add('visible'); hudBasesEl.classList.add('visible');
   minimapCont.classList.add('visible'); crosshair.classList.add('visible');
   if (hudUltimate) hudUltimate.classList.add('visible');
   inGame = true;
+  inLobby = false;
   lastUltTime = Date.now();
-  for (const k in keys) keys[k] = false; // Reset bounds
+  for (const k in keys) keys[k] = false;
   emitMoveIntent();
 }
-document.getElementById('btn-warrior').addEventListener('click', () => joinGame('warrior'));
-document.getElementById('btn-archer').addEventListener('click',  () => joinGame('archer'));
-document.getElementById('btn-mage').addEventListener('click',  () => joinGame('mage'));
-document.getElementById('btn-priest').addEventListener('click',  () => joinGame('priest'));
-document.getElementById('btn-assassin').addEventListener('click', () => joinGame('assassin'));
-document.getElementById('btn-summoner').addEventListener('click', () => joinGame('summoner'));
-document.getElementById('btn-chaos').addEventListener('click', () => joinGame('chaos'));
-document.getElementById('btn-engineer').addEventListener('click', () => joinGame('engineer'));
+
+// ── 2-Step Character Selection ─────────────────────────────────────────────
+const enterArenaBtn = document.getElementById('enter-arena-btn');
+const allClassCards = document.querySelectorAll('.class-card');
+
+function selectCharacter(classType, cardEl) {
+  selectedCharacter = classType;
+  localStorage.setItem('arena_character', classType);
+  allClassCards.forEach(c => c.classList.remove('selected'));
+  cardEl.classList.add('selected');
+  enterArenaBtn.disabled = false;
+  enterArenaBtn.textContent = 'ENTER ARENA';
+}
+
+document.getElementById('btn-warrior').addEventListener('click', function() { selectCharacter('warrior', this); });
+document.getElementById('btn-archer').addEventListener('click', function() { selectCharacter('archer', this); });
+document.getElementById('btn-mage').addEventListener('click', function() { selectCharacter('mage', this); });
+document.getElementById('btn-priest').addEventListener('click', function() { selectCharacter('priest', this); });
+document.getElementById('btn-assassin').addEventListener('click', function() { selectCharacter('assassin', this); });
+document.getElementById('btn-summoner').addEventListener('click', function() { selectCharacter('summoner', this); });
+document.getElementById('btn-chaos').addEventListener('click', function() { selectCharacter('chaos', this); });
+document.getElementById('btn-engineer').addEventListener('click', function() { selectCharacter('engineer', this); });
+
+enterArenaBtn.addEventListener('click', () => {
+  if (selectedCharacter) joinGame(selectedCharacter);
+});
+
+// Save username on input
+lobbyInput.addEventListener('input', () => {
+  localStorage.setItem('arena_username', lobbyInput.value);
+});
+
+// ── Load localStorage Preferences ──────────────────────────────────────────
+(function loadSavedPreferences() {
+  const savedUsername = localStorage.getItem('arena_username');
+  if (savedUsername) lobbyInput.value = savedUsername;
+
+  const savedCharacter = localStorage.getItem('arena_character');
+  if (savedCharacter) {
+    const cardEl = document.getElementById('btn-' + savedCharacter);
+    if (cardEl) selectCharacter(savedCharacter, cardEl);
+  }
+})();
 
 const gameOverEl = document.getElementById('game-over');
 const goTitle = document.getElementById('go-title');
@@ -1702,12 +1880,40 @@ function animate() {
 
   // Process Game Meshes
   for (const id in playerMeshes) {
-    const { mesh, targetPos, targetScale, targetRotY } = playerMeshes[id];
+    const entry = playerMeshes[id];
+    const { mesh, targetPos, targetScale, targetRotY } = entry;
     mesh.position.lerp(targetPos, LERP_FACTOR);
     mesh.scale.x += (targetScale - mesh.scale.x) * LERP_FACTOR;
     mesh.scale.y += (targetScale - mesh.scale.y) * LERP_FACTOR;
     mesh.scale.z += (targetScale - mesh.scale.z) * LERP_FACTOR;
     mesh.rotation.y = lerpAngle(mesh.rotation.y, targetRotY || 0, LERP_FACTOR);
+
+    // ── Animation State Machine ──────────────────────────────────────────
+    if (entry.mixer) {
+      const dx = entry.targetPos.x - entry.prevPos.x;
+      const dz = entry.targetPos.z - entry.prevPos.z;
+      const speed = Math.sqrt(dx * dx + dz * dz);
+      entry.prevPos.copy(entry.targetPos);
+
+      // Handle attack timer countdown
+      if (entry.isAttacking) {
+        entry.attackTimer -= delta;
+        if (entry.attackTimer <= 0) {
+          entry.isAttacking = false;
+        }
+      }
+
+      // Priority: Attack > Run > Idle
+      if (entry.isAttacking) {
+        fadeToAction(entry, 'Attack', 0.15);
+      } else if (speed > 0.05) {
+        fadeToAction(entry, 'Run', 0.2);
+      } else {
+        fadeToAction(entry, 'Idle', 0.3);
+      }
+
+      entry.mixer.update(delta);
+    }
 
     const tag = nametags[id];
     if (tag) {
@@ -1966,6 +2172,15 @@ function animate() {
   } else {
     isCameraInitialized = false;
     cameraYaw = 0;
+
+    // ── Lobby Cinematic Camera Pan ──
+    if (inLobby) {
+      const time = Date.now() * 0.0003;
+      camera.position.x = Math.cos(time) * 120;
+      camera.position.y = 60;
+      camera.position.z = Math.sin(time) * 120;
+      camera.lookAt(0, 0, 0);
+    }
   }
 
   emitMoveIntent();
@@ -1973,7 +2188,7 @@ function animate() {
 
   composer.render();
 }
-animate();
+preloadCharacterModel().then(() => { animate(); });
 
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
