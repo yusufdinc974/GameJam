@@ -60,7 +60,7 @@ function preloadCharacterModel() {
 const SERVER_URL = 'http://localhost:3000';
 const LERP_FACTOR = 0.15;
 const FLOOR_SIZE = 400;
-const GRID_DIVISIONS = 200;
+const GRID_DIVISIONS = 80;
 const WORLD_BOUNDARY = FLOOR_SIZE / 2;
 
 // ── Game State ──────────────────────────────────────────────────────────────
@@ -81,11 +81,11 @@ scene.background = new THREE.Color(0x87ceeb);
 scene.fog      = new THREE.FogExp2(0x87ceeb, 0.0035);
 
 const camera   = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 500);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);
 
 // ── Lighting ────────────────────────────────────────────────────────────────
@@ -94,8 +94,8 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.58));
 const dirLight = new THREE.DirectionalLight(0xffffff, 2.25);
 dirLight.position.set(38, 64, 28);
 dirLight.castShadow = true;
-dirLight.shadow.mapSize.width = 2048;
-dirLight.shadow.mapSize.height = 2048;
+dirLight.shadow.mapSize.width = 1024;
+dirLight.shadow.mapSize.height = 1024;
 dirLight.shadow.camera.near = 0.5;
 dirLight.shadow.camera.far = 260;
 dirLight.shadow.camera.left = -180;
@@ -110,9 +110,9 @@ composer.addPass(renderPass);
 
 const outlineObjects = [];
 const outlinePass = new OutlinePass(new THREE.Vector2(innerWidth, innerHeight), scene, camera);
-outlinePass.edgeStrength = 3.6;
+outlinePass.edgeStrength = 2.5;
 outlinePass.edgeGlow = 0.0;
-outlinePass.edgeThickness = 2.0;
+outlinePass.edgeThickness = 1.2;
 outlinePass.visibleEdgeColor.set('#000000');
 outlinePass.hiddenEdgeColor.set('#000000');
 outlinePass.pulsePeriod = 0;
@@ -151,7 +151,7 @@ gridHelper.material.opacity = 0.65;
 gridHelper.material.transparent = true;
 scene.add(gridHelper);
 
-const dustCount = 500;
+const dustCount = 200;
 const dustGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
 const dustMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
 const dustMesh = new THREE.InstancedMesh(dustGeo, dustMat, dustCount);
@@ -204,7 +204,6 @@ const stealthZoneMaterial = new THREE.MeshToonMaterial({
 function clearEnvironmentMeshes() {
   while (wallMeshes.length > 0) {
     const mesh = wallMeshes.pop();
-    unregisterOutlineObject(mesh);
     scene.remove(mesh);
     mesh.geometry.dispose();
     if (mesh.material) mesh.material.dispose();
@@ -235,7 +234,6 @@ function buildEnvironmentGeometry(walls, stealthZones) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
-    registerOutlineObject(mesh);
     wallMeshes.push(mesh);
   }
 
@@ -615,17 +613,21 @@ function createProjMesh(id, data) {
   const mesh = new THREE.Mesh(projGeo, mat);
   mesh.position.set(data.x, 0.5, data.z);
   scene.add(mesh);
-  registerOutlineObject(mesh);
   projMeshes[id] = { mesh, targetX: data.x, targetZ: data.z, kind };
 }
 function removeProjMesh(id) {
   const entry = projMeshes[id];
-  if (!entry) return; unregisterOutlineObject(entry.mesh); scene.remove(entry.mesh); entry.mesh.material.dispose(); delete projMeshes[id];
+  if (!entry) return; scene.remove(entry.mesh); entry.mesh.material.dispose(); delete projMeshes[id];
 }
 
 // ── Base Entity Management ──────────────────────────────────────────────────
 const botMeshes = {};
 const botGeo = new THREE.OctahedronGeometry(1, 0);
+const botMatCache = {
+  red: new THREE.MeshToonMaterial({ color: 0xff2d3d, emissive: 0xff2d3d, emissiveIntensity: 0.8 }),
+  blue: new THREE.MeshToonMaterial({ color: 0x1f66ff, emissive: 0x1f66ff, emissiveIntensity: 0.8 }),
+  neutral: new THREE.MeshToonMaterial({ color: BOT_COLOR, emissive: BOT_COLOR.clone().multiplyScalar(0.26), emissiveIntensity: 0.35 }),
+};
 
 function createBotHealthUi() {
   const root = document.createElement('div');
@@ -654,37 +656,13 @@ function createBotHealthUi() {
 
 function createBotMesh(id, data) {
   const scale = Number(data.scale) || 1;
-  let botMaterial;
-  
-  // Determine color based on team property (for Summoner pets)
-  if (data.team === 'red') {
-    botMaterial = new THREE.MeshToonMaterial({
-      color: new THREE.Color(0xff2d3d),
-      emissive: new THREE.Color(0xff2d3d),
-      emissiveIntensity: 0.8,
-    });
-  } else if (data.team === 'blue') {
-    botMaterial = new THREE.MeshToonMaterial({
-      color: new THREE.Color(0x1f66ff),
-      emissive: new THREE.Color(0x1f66ff),
-      emissiveIntensity: 0.8,
-    });
-  } else {
-    // Default grey for neutral bots
-    botMaterial = new THREE.MeshToonMaterial({
-      color: BOT_COLOR,
-      emissive: BOT_COLOR.clone().multiplyScalar(0.26),
-      emissiveIntensity: 0.35,
-    });
-  }
+  // Use cached materials instead of creating new ones per bot
+  const botMaterial = data.team === 'red' ? botMatCache.red : data.team === 'blue' ? botMatCache.blue : botMatCache.neutral;
   
   const mesh = new THREE.Mesh(botGeo, botMaterial);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
   mesh.position.set(Number(data.x) || 0, 0.8 * scale, Number(data.z) || 0);
   mesh.scale.set(scale, scale, scale);
   scene.add(mesh);
-  registerOutlineObject(mesh);
 
   // Add custom properties for damage tracking
   mesh.userData.isBot = true;
@@ -705,9 +683,7 @@ function createBotMesh(id, data) {
 function removeBotMesh(id) {
   const entry = botMeshes[id];
   if (!entry) return;
-  unregisterOutlineObject(entry.mesh);
   scene.remove(entry.mesh);
-  entry.mesh.material.dispose();
   if (entry.healthRoot) entry.healthRoot.remove();
   delete botMeshes[id];
 }
@@ -724,10 +700,7 @@ function createTurretMesh(id, data) {
   const scale = Number(data.scale) || 1;
   mesh.scale.set(scale, scale, scale);
   mesh.position.set(Number(data.x) || 0, 0.8 * scale, Number(data.z) || 0);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
   scene.add(mesh);
-  registerOutlineObject(mesh);
   turretMeshes[id] = {
     mesh,
     targetPos: new THREE.Vector3(Number(data.x) || 0, 0.8 * scale, Number(data.z) || 0),
@@ -738,7 +711,6 @@ function createTurretMesh(id, data) {
 function removeTurretMesh(id) {
   const entry = turretMeshes[id];
   if (!entry) return;
-  unregisterOutlineObject(entry.mesh);
   scene.remove(entry.mesh);
   entry.mesh.material.dispose();
   delete turretMeshes[id];
@@ -817,14 +789,12 @@ function createBaseMesh(teamKey, data) {
   const geo = new THREE.CylinderGeometry(data.scale, data.scale, 3, 16);
   const mat = new THREE.MeshToonMaterial({ color: teamColor, emissive: teamColor, emissiveIntensity: 0.3, transparent: true, opacity: 0.7 });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(data.x, 1.5, data.z); mesh.castShadow = true; mesh.receiveShadow = true; scene.add(mesh);
-  registerOutlineObject(mesh);
+  mesh.position.set(data.x, 1.5, data.z); mesh.castShadow = true; scene.add(mesh);
 
   const ringGeo = new THREE.TorusGeometry(data.scale + 0.5, 0.15, 8, 32);
   const ringMat = new THREE.MeshToonMaterial({ color: teamColor, emissive: teamColor, emissiveIntensity: 0.5 });
   const ring = new THREE.Mesh(ringGeo, ringMat);
   ring.rotation.x = -Math.PI / 2; ring.position.set(data.x, 0.05, data.z); scene.add(ring);
-  registerOutlineObject(ring);
   baseMeshes[teamKey] = { mesh, ring, mat, initialOpacity: 0.7 };
 }
 
@@ -841,39 +811,46 @@ function updateBaseMesh(teamKey, data) {
 const activeParticles = [];
 const particleGeo = new THREE.TetrahedronGeometry(0.3, 0);
 
-function spawnParticle(x, z, colorStr) {
+const MAX_PARTICLES = 80;
+const particleMatCache = {};
+function getParticleMat(colorStr) {
+  if (particleMatCache[colorStr]) return particleMatCache[colorStr];
   const c = new THREE.Color(colorStr);
   const mat = new THREE.MeshToonMaterial({
     color: c, emissive: c, emissiveIntensity: 0.8,
     transparent: true, opacity: 1
   });
+  particleMatCache[colorStr] = mat;
+  return mat;
+}
+
+function spawnParticle(x, z, colorStr) {
+  if (activeParticles.length >= MAX_PARTICLES) return;
+  const mat = getParticleMat(colorStr);
   const mesh = new THREE.Mesh(particleGeo, mat);
   mesh.position.set(x, 0.5, z);
-  
+
   const vx = (Math.random() - 0.5) * 15;
   const vy = 5 + Math.random() * 10;
   const vz = (Math.random() - 0.5) * 15;
-  
+
   scene.add(mesh);
   activeParticles.push({ mesh, vx, vy, vz, life: 1.0 });
 }
 
 // ── Hit Flash Effect ────────────────────────────────────────────────────────
+const _flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
 function flashHit(targetMesh) {
   if (!targetMesh) return;
-  
+
   const originalMaterials = [];
-  
-  // Traverse and save original materials, then apply white flash
   targetMesh.traverse((obj) => {
     if (obj.isMesh && obj.material) {
       originalMaterials.push({ obj, originalMaterial: obj.material });
-      const whiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      obj.material = whiteMat;
+      obj.material = _flashMat;
     }
   });
-  
-  // Revert to original materials after 100ms
+
   setTimeout(() => {
     originalMaterials.forEach(({ obj, originalMaterial }) => {
       obj.material = originalMaterial;
@@ -1233,7 +1210,7 @@ socket.on('combatEvent', (ev) => {
       }
     }
   } else if (ev.type === 'death') {
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 8; i++) {
         spawnParticle(ev.x, ev.z, ev.color || '#fff');
     }
   }
@@ -1846,6 +1823,7 @@ const vfxGlowOffset = new THREE.Vector3(0, 0.8, 0);
 let isCameraInitialized = false;
 let cameraYaw = 0;
 const clock = new THREE.Clock();
+const _projVec = new THREE.Vector3(); // reusable vector for screen projection
 
 function spawnMageParticle(tx, tz) {
   const geo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
@@ -1921,15 +1899,15 @@ function animate() {
         tag.style.opacity = '0';
         continue;
       }
-      const v = mesh.position.clone();
-      v.y += (mesh.scale.y * 1.5) + 0.5;
-      v.project(camera);
-      if (v.z > 1) {
+      _projVec.copy(mesh.position);
+      _projVec.y += (mesh.scale.y * 1.5) + 0.5;
+      _projVec.project(camera);
+      if (_projVec.z > 1) {
         tag.style.opacity = '0';
       } else {
         tag.style.opacity = '1';
-        tag.style.left = `${(v.x * halfW) + halfW}px`;
-        tag.style.top = `${-(v.y * halfH) + halfH}px`;
+        tag.style.left = `${(_projVec.x * halfW) + halfW}px`;
+        tag.style.top = `${-(_projVec.y * halfH) + halfH}px`;
       }
     }
   }
@@ -1947,15 +1925,15 @@ function animate() {
     }
 
     if (entry.healthRoot) {
-      const v = entry.mesh.position.clone();
-      v.y += (entry.mesh.scale.y * 1.7) + 0.6;
-      v.project(camera);
-      if (v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2) {
+      _projVec.copy(entry.mesh.position);
+      _projVec.y += (entry.mesh.scale.y * 1.7) + 0.6;
+      _projVec.project(camera);
+      if (_projVec.z > 1 || Math.abs(_projVec.x) > 1.2 || Math.abs(_projVec.y) > 1.2) {
         entry.healthRoot.style.opacity = '0';
       } else {
         entry.healthRoot.style.opacity = '1';
-        entry.healthRoot.style.left = `${(v.x * halfW) + halfW}px`;
-        entry.healthRoot.style.top = `${-(v.y * halfH) + halfH}px`;
+        entry.healthRoot.style.left = `${(_projVec.x * halfW) + halfW}px`;
+        entry.healthRoot.style.top = `${-(_projVec.y * halfH) + halfH}px`;
       }
     }
   }
@@ -1972,15 +1950,15 @@ function animate() {
   for (const soc of activeSocials) {
     const entry = playerMeshes[soc.playerId];
     if (entry) {
-      const v = entry.mesh.position.clone();
-      v.y += (entry.targetScale * 1.5) + 1.2;
-      v.project(camera);
-      if (v.z > 1) {
+      _projVec.copy(entry.mesh.position);
+      _projVec.y += (entry.targetScale * 1.5) + 1.2;
+      _projVec.project(camera);
+      if (_projVec.z > 1) {
         soc.element.style.opacity = '0';
       } else {
         soc.element.style.opacity = '1';
-        soc.element.style.left = `${(v.x * halfW) + halfW}px`;
-        soc.element.style.top = `${-(v.y * halfH) + halfH}px`;
+        soc.element.style.left = `${(_projVec.x * halfW) + halfW}px`;
+        soc.element.style.top = `${-(_projVec.y * halfH) + halfH}px`;
       }
     } else {
       soc.element.style.opacity = '0';
@@ -2106,7 +2084,6 @@ function animate() {
     
     if (p.life <= 0 || p.mesh.position.y < 0) {
       scene.remove(p.mesh);
-      p.mesh.material.dispose();
       activeParticles.splice(i, 1);
     }
   }
@@ -2192,7 +2169,7 @@ preloadCharacterModel().then(() => { animate(); });
 
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  const pixelRatio = Math.min(devicePixelRatio, 1.5);
+  const pixelRatio = Math.min(devicePixelRatio, 1);
   renderer.setPixelRatio(pixelRatio);
   composer.setPixelRatio(pixelRatio);
   renderer.setSize(innerWidth, innerHeight);
