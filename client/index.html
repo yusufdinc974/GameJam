@@ -53,8 +53,8 @@
 
       /* Card grid */
       #lobby .class-cards {
-        display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
-        max-width: 920px; width: 100%; padding: 0 8px;
+        display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px;
+        max-width: 1150px; width: 100%; padding: 0 8px;
       }
       @media (max-width: 960px) { #lobby .class-cards { grid-template-columns: repeat(2, 1fr); max-width: 480px; } }
       @media (max-width: 520px)  { #lobby .class-cards { grid-template-columns: 1fr; max-width: 260px; } }
@@ -127,6 +127,14 @@
       .class-card.engineer .role { color: #f39c12; }
       .class-card.engineer:hover { border-color: rgba(243,156,18,0.5); box-shadow: 0 8px 30px rgba(243,156,18,0.2), inset 0 1px 0 rgba(243,156,18,0.15); }
 
+      .class-card.paladin  { --card-glow: rgba(26,188,156,0.15); }
+      .class-card.paladin  .role { color: #1abc9c; }
+      .class-card.paladin:hover  { border-color: rgba(26,188,156,0.5); box-shadow: 0 8px 30px rgba(26,188,156,0.2), inset 0 1px 0 rgba(26,188,156,0.15); }
+
+      .class-card.necromancer { --card-glow: rgba(39,174,96,0.15); }
+      .class-card.necromancer .role { color: #27ae60; }
+      .class-card.necromancer:hover { border-color: rgba(39,174,96,0.5); box-shadow: 0 8px 30px rgba(39,174,96,0.2), inset 0 1px 0 rgba(39,174,96,0.15); }
+
       /* ── SELECTED CARD STATE ── */
       .class-card.selected {
         border-color: var(--card-sel, #e74c3c) !important;
@@ -147,6 +155,8 @@
       .class-card.summoner.selected { --card-sel: #2ecc71; --card-sel-glow: rgba(46,204,113,0.4); }
       .class-card.chaos.selected    { --card-sel: #bb6bd9; --card-sel-glow: rgba(187,107,217,0.4); }
       .class-card.engineer.selected { --card-sel: #f39c12; --card-sel-glow: rgba(243,156,18,0.4); }
+      .class-card.paladin.selected  { --card-sel: #1abc9c; --card-sel-glow: rgba(26,188,156,0.4); }
+      .class-card.necromancer.selected { --card-sel: #27ae60; --card-sel-glow: rgba(39,174,96,0.4); }
 
       /* ── ENTER ARENA BUTTON ── */
       #enter-arena-btn {
@@ -363,21 +373,37 @@
       #crosshair::before { width: 2px; height: 20px; left: 9px; top: 0; }
       #crosshair::after  { width: 20px; height: 2px; top: 9px; left: 0; }
 
+      /* FPS COUNTER */
+      #fps-counter {
+        position: fixed; top: 8px; left: 8px; z-index: 10;
+        font-family: 'Oswald', 'Inter', monospace; font-weight: 600; font-size: 13px;
+        color: #4ade80; letter-spacing: 0.04em;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        pointer-events: none; opacity: 0; transition: opacity 0.3s ease;
+      }
+      #fps-counter.visible { opacity: 1; }
+
       /* HOW TO PLAY */
       #help-button {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        z-index: 100;
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        border: 2px solid rgba(255,255,255,0.6);
-        background: rgba(0,0,0,0.55);
-        color: #fff;
-        font-size: 22px;
-        font-weight: bold;
+        position: relative;
+        display: inline-block;
+        margin-top: 14px;
+        padding: 8px 24px;
+        border-radius: 4px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: rgba(255,255,255,0.4);
+        font-family: 'Oswald', sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
         cursor: pointer;
+        transition: color 0.2s, border-color 0.2s, background 0.2s;
+      }
+      #help-button:hover {
+        color: rgba(255,255,255,0.8);
+        border-color: rgba(255,255,255,0.25);
+        background: rgba(255,255,255,0.08);
       }
       #howto-modal {
         display: none;
@@ -495,7 +521,7 @@
     <div id="social-container"></div>
     <input id="chat-input" type="text" placeholder="Press Enter to chat..." autocomplete="off" />
 
-    <button id="help-button" type="button">?</button>
+    <div id="fps-counter">0 FPS</div>
     <div id="howto-modal">
       <h2>How to Play</h2>
       <h3>Controls</h3>
@@ -531,64 +557,79 @@
 
       <div class="class-cards">
         <div class="class-card warrior" id="btn-warrior">
-          <span class="hp-badge">150 HP</span>
+          <span class="hp-badge">160 HP</span>
           <div class="icon">⚔️</div>
           <div class="name">Warrior</div>
           <div class="role">Melee Tank</div>
           <div class="desc">Slow &amp; tanky frontliner<br>Devastating cleave attack<br>Ult: AoE Stun</div>
         </div>
         <div class="class-card archer" id="btn-archer">
-          <span class="hp-badge">80 HP</span>
+          <span class="hp-badge">85 HP</span>
           <div class="icon">🏹</div>
           <div class="name">Archer</div>
           <div class="role">Fast Ranged</div>
-          <div class="desc">Fast &amp; agile marksman<br>Rapid projectile shots<br>Ult: Piercing Laser</div>
+          <div class="desc">Fast &amp; agile marksman<br>Rapid arrow shots<br>Ult: Piercing Laser</div>
         </div>
         <div class="class-card mage" id="btn-mage">
           <span class="hp-badge">90 HP</span>
           <div class="icon">🔮</div>
           <div class="name">Mage</div>
           <div class="role">Heavy Ranged</div>
-          <div class="desc">Slow but devastating<br>Heavy single-target bursts<br>Ult: Black Hole</div>
+          <div class="desc">Slow but devastating<br>Heavy arcane bolts<br>Ult: Black Hole</div>
         </div>
         <div class="class-card priest" id="btn-priest">
-          <span class="hp-badge">120 HP</span>
+          <span class="hp-badge">110 HP</span>
           <div class="icon">✨</div>
           <div class="name">Priest</div>
-          <div class="role">Support</div>
-          <div class="desc">Fast &amp; light healer<br>Rapid low-damage shots<br>Ult: AoE Burst Heal</div>
+          <div class="role">Ranged Support</div>
+          <div class="desc">Fast &amp; light healer<br>Rapid healing orbs<br>Ult: AoE Burst Heal</div>
         </div>
         <div class="class-card assassin" id="btn-assassin">
-          <span class="hp-badge">70 HP</span>
+          <span class="hp-badge">75 HP</span>
           <div class="icon">🗡️</div>
           <div class="name">Assassin</div>
-          <div class="role">Teleport &amp; Speed</div>
-          <div class="desc">Glass cannon flanker<br>Blinks behind enemies<br>Ult: Speed Surge</div>
+          <div class="role">Melee Flanker</div>
+          <div class="desc">Fast close-range killer<br>Deadly blade strikes<br>Ult: Teleport + Speed</div>
         </div>
         <div class="class-card summoner" id="btn-summoner">
-          <span class="hp-badge">100 HP</span>
+          <span class="hp-badge">95 HP</span>
           <div class="icon">👁️</div>
           <div class="name">Summoner</div>
-          <div class="role">Pet Master</div>
+          <div class="role">Ranged Pet Master</div>
           <div class="desc">Homing projectiles<br>Overwhelm with numbers<br>Ult: Summon 3 Pets</div>
         </div>
         <div class="class-card chaos" id="btn-chaos">
           <span class="hp-badge">90 HP</span>
           <div class="icon">🌀</div>
           <div class="name">Chaos Witch</div>
-          <div class="role">Reality Warp</div>
-          <div class="desc">Inverts enemy controls<br>Distorts the battlefield<br>Ult: Area Distortion</div>
+          <div class="role">Ranged Disruptor</div>
+          <div class="desc">Inverts enemy controls<br>Hex projectiles<br>Ult: Area Distortion</div>
         </div>
         <div class="class-card engineer" id="btn-engineer">
-          <span class="hp-badge">120 HP</span>
+          <span class="hp-badge">110 HP</span>
           <div class="icon">⚙️</div>
           <div class="name">Engineer</div>
-          <div class="role">Traps &amp; Turrets</div>
+          <div class="role">Ranged Zone Control</div>
           <div class="desc">Zone-control specialist<br>Plants mine traps<br>Ult: Deploy Turret</div>
+        </div>
+        <div class="class-card paladin" id="btn-paladin">
+          <span class="hp-badge">140 HP</span>
+          <div class="icon">🛡️</div>
+          <div class="name">Paladin</div>
+          <div class="role">Melee Guardian</div>
+          <div class="desc">Tanky divine protector<br>Holy melee strikes<br>Ult: Divine Shield</div>
+        </div>
+        <div class="class-card necromancer" id="btn-necromancer">
+          <span class="hp-badge">80 HP</span>
+          <div class="icon">💀</div>
+          <div class="name">Necromancer</div>
+          <div class="role">Ranged Drainer</div>
+          <div class="desc">Dark curse projectiles<br>Steals life from foes<br>Ult: Soul Drain</div>
         </div>
       </div>
 
       <button id="enter-arena-btn" disabled>SELECT A CLASS</button>
+      <button id="help-button" type="button">? HOW TO PLAY</button>
     </div>
 
     <!-- GAME OVER -->

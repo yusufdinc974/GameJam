@@ -179,6 +179,8 @@ const geoCache = {
   hexagon:     new THREE.CylinderGeometry(0.62, 0.62, 1, 6),
   dodecahedron:new THREE.DodecahedronGeometry(0.68, 0),
   cylinder:    new THREE.CylinderGeometry(0.58, 0.58, 1, 14),
+  torusknot:   new THREE.TorusKnotGeometry(0.45, 0.18, 64, 8),
+  capsule:     new THREE.CapsuleGeometry(0.4, 0.5, 8, 12),
 };
 
 const TEAM_COLORS = {
@@ -433,6 +435,25 @@ function createCharacterGroup(type, teamColor) {
       group.add(core);
       break;
     }
+    case 'torusknot': {
+      bodyMesh = new THREE.Mesh(geoCache.torusknot, bodyMat);
+      const halo = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.7, 32), new THREE.MeshToonMaterial({ color: 0x1abc9c, emissive: 0x1abc9c, emissiveIntensity: 0.6, side: THREE.DoubleSide }));
+      halo.rotation.x = Math.PI / 2;
+      halo.position.y = 0.75;
+      group.add(halo);
+      break;
+    }
+    case 'capsule': {
+      bodyMesh = new THREE.Mesh(geoCache.capsule, bodyMat);
+      const skullMat = new THREE.MeshToonMaterial({ color: 0x2d2d2d, emissive: 0x27ae60, emissiveIntensity: 0.3 });
+      for (let i = 0; i < 2; i++) {
+        const skull = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), skullMat);
+        const angle = Math.PI * i;
+        skull.position.set(Math.cos(angle) * 0.6, 0.2, Math.sin(angle) * 0.6);
+        group.add(skull);
+      }
+      break;
+    }
     default: {
       bodyMesh = new THREE.Mesh(geoCache.cube, bodyMat);
       break;
@@ -599,21 +620,35 @@ function removeOrbMesh(id) {
 }
 
 const projMeshes = {};
-const projGeo = new THREE.SphereGeometry(0.15, 8, 8);
+const projGeoDefault = new THREE.SphereGeometry(0.15, 8, 8);
+const projGeoArrow = new THREE.ConeGeometry(0.08, 0.4, 6);
+const projGeoBolt = new THREE.IcosahedronGeometry(0.2, 0);
+const projGeoOrb = new THREE.SphereGeometry(0.22, 10, 10);
+const projGeoCurse = new THREE.TetrahedronGeometry(0.18, 0);
+const projGeoHex = new THREE.OctahedronGeometry(0.14, 0);
+
 function createProjMesh(id, data) {
   if (data.visible === false || data.kind === 'mine') return;
   const kind = data.kind || 'normal';
   const color = data.ownerColor || '#74b9ff';
+  const ownerClass = data.ownerClass || '';
   const emissiveBoost = kind === 'turret_shot' ? 0.65 : (kind === 'summoner_homing' ? 0.85 : 1.0);
   const mat = new THREE.MeshToonMaterial({
     color: new THREE.Color(color),
     emissive: new THREE.Color(color),
     emissiveIntensity: emissiveBoost
   });
-  const mesh = new THREE.Mesh(projGeo, mat);
+  let geo = projGeoDefault;
+  if (ownerClass === 'archer') geo = projGeoArrow;
+  else if (ownerClass === 'mage') geo = projGeoBolt;
+  else if (ownerClass === 'priest') geo = projGeoOrb;
+  else if (ownerClass === 'necromancer') geo = projGeoCurse;
+  else if (ownerClass === 'chaos') geo = projGeoHex;
+  else if (kind === 'summoner_homing') geo = projGeoOrb;
+  const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(data.x, 0.5, data.z);
   scene.add(mesh);
-  projMeshes[id] = { mesh, targetX: data.x, targetZ: data.z, kind };
+  projMeshes[id] = { mesh, targetX: data.x, targetZ: data.z, kind, ownerClass };
 }
 function removeProjMesh(id) {
   const entry = projMeshes[id];
@@ -858,6 +893,28 @@ function flashHit(targetMesh) {
   }, 100);
 }
 
+// ── Melee Swing Visual ─────────────────────────────────────────────────────
+const MELEE_CLASSES = new Set(['cube', 'octahedron', 'torusknot']); // warrior, assassin, paladin
+const swingArcs = [];
+const swingGeo = new THREE.RingGeometry(0.5, 2.5, 16, 1, 0, Math.PI / 2);
+const swingMatCache = {};
+function getSwingMat(color) {
+  if (swingMatCache[color]) return swingMatCache[color];
+  const c = new THREE.Color(color);
+  const mat = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+  swingMatCache[color] = mat;
+  return mat;
+}
+function spawnSwingArc(x, z, rotY, color) {
+  const mat = getSwingMat(color);
+  const mesh = new THREE.Mesh(swingGeo, mat.clone());
+  mesh.position.set(x, 0.5, z);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.rotation.z = rotY - Math.PI / 4;
+  scene.add(mesh);
+  swingArcs.push({ mesh, life: 0.25 });
+}
+
 // ── DOM Elements ────────────────────────────────────────────────────────────
 const minimapCanvas = document.getElementById('minimap');
 const hudLeaderboard = document.getElementById('hud-leaderboard');
@@ -866,6 +923,8 @@ const damageContainer = document.getElementById('damage-container');
 
 const chatInput = document.getElementById('chat-input');
 const socialContainer = document.getElementById('social-container');
+const fpsCounter = document.getElementById('fps-counter');
+let fpsFrames = 0, fpsLastTime = performance.now();
 const helpButton = document.getElementById('help-button');
 const howToModal = document.getElementById('howto-modal');
 const howToClose = document.getElementById('howto-close');
@@ -1709,7 +1768,31 @@ window.addEventListener('keyup', (e) => {
   if (key && keys[key]) { keys[key] = false; emitMoveIntent(); }
 });
 
-window.addEventListener('click', (e) => {
+let isMouseHeld = false;
+let attackInterval = null;
+
+function doAttack() {
+  if (!inGame || isTyping || isHowToOpen) return;
+  updateAimIntersection();
+  socket.emit('attack', { targetX: intersection.x, targetZ: intersection.z });
+  if (myId && playerMeshes[myId]) {
+    const entry = playerMeshes[myId];
+    if (entry.mixer) {
+      entry.isAttacking = true;
+      entry.attackTimer = ATTACK_ANIM_DURATION;
+      fadeToAction(entry, 'Attack', 0.1);
+    }
+    // Melee swing visual for close-range classes
+    if (MELEE_CLASSES.has(entry.currentType)) {
+      const m = entry.mesh;
+      const color = entry.team === 'red' ? '#ff4444' : '#4488ff';
+      spawnSwingArc(m.position.x, m.position.z, m.rotation.y, color);
+    }
+  }
+}
+
+window.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
   if (
     !inGame ||
     isTyping ||
@@ -1718,14 +1801,19 @@ window.addEventListener('click', (e) => {
     e.target.closest('#howto-modal') ||
     e.target.closest('#help-button')
   ) return;
-  updateAimIntersection();
-  socket.emit('attack', { targetX: intersection.x, targetZ: intersection.z });
-  // Trigger attack animation on local player
-  if (myId && playerMeshes[myId] && playerMeshes[myId].mixer) {
-    playerMeshes[myId].isAttacking = true;
-    playerMeshes[myId].attackTimer = ATTACK_ANIM_DURATION;
-    fadeToAction(playerMeshes[myId], 'Attack', 0.1);
-  }
+  isMouseHeld = true;
+  doAttack();
+  if (attackInterval) clearInterval(attackInterval);
+  attackInterval = setInterval(() => {
+    if (!isMouseHeld) { clearInterval(attackInterval); attackInterval = null; return; }
+    doAttack();
+  }, 50);
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (e.button !== 0) return;
+  isMouseHeld = false;
+  if (attackInterval) { clearInterval(attackInterval); attackInterval = null; }
 });
 
 // ── Lobby / Game Over ───────────────────────────────────────────────────────
@@ -1749,6 +1837,7 @@ function joinGame(classType) {
   hudStats.classList.add('visible'); hudBasesEl.classList.add('visible');
   minimapCont.classList.add('visible'); crosshair.classList.add('visible');
   if (hudUltimate) hudUltimate.classList.add('visible');
+  fpsCounter.classList.add('visible');
   inGame = true;
   inLobby = false;
   lastUltTime = Date.now();
@@ -1990,6 +2079,21 @@ function animate() {
     const entry = projMeshes[id];
     entry.mesh.position.x += (entry.targetX - entry.mesh.position.x) * 0.5;
     entry.mesh.position.z += (entry.targetZ - entry.mesh.position.z) * 0.5;
+    // Rotate projectiles for visual flair
+    if (entry.ownerClass === 'archer') {
+      // Arrow points in direction of travel
+      const dx = entry.targetX - entry.mesh.position.x;
+      const dz = entry.targetZ - entry.mesh.position.z;
+      if (dx * dx + dz * dz > 0.001) {
+        entry.mesh.rotation.x = Math.PI / 2;
+        entry.mesh.rotation.z = Math.atan2(dx, dz);
+      }
+    } else if (entry.ownerClass === 'mage' || entry.ownerClass === 'chaos' || entry.ownerClass === 'necromancer') {
+      entry.mesh.rotation.x += delta * 6;
+      entry.mesh.rotation.y += delta * 8;
+    } else if (entry.kind === 'summoner_homing') {
+      entry.mesh.rotation.y += delta * 10;
+    }
   }
   for (const teamKey in baseMeshes) {
     const entry = baseMeshes[teamKey];
@@ -2088,6 +2192,20 @@ function animate() {
     }
   }
 
+  // Update melee swing arcs
+  for (let i = swingArcs.length - 1; i >= 0; i--) {
+    const arc = swingArcs[i];
+    arc.life -= delta;
+    arc.mesh.material.opacity = Math.max(0, arc.life * 2.4);
+    const s = 1 + (0.25 - arc.life) * 2;
+    arc.mesh.scale.set(s, s, s);
+    if (arc.life <= 0) {
+      scene.remove(arc.mesh);
+      arc.mesh.material.dispose();
+      swingArcs.splice(i, 1);
+    }
+  }
+
   if (inGame && hudUltimate) {
      const now = Date.now();
      if (now - lastUltTime >= ultCooldown) {
@@ -2162,6 +2280,15 @@ function animate() {
 
   emitMoveIntent();
   updateAimIntersection();
+
+  // ── FPS Counter ──
+  fpsFrames++;
+  const fpsNow = performance.now();
+  if (fpsNow - fpsLastTime >= 1000) {
+    fpsCounter.textContent = fpsFrames + ' FPS';
+    fpsFrames = 0;
+    fpsLastTime = fpsNow;
+  }
 
   composer.render();
 }

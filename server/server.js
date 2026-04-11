@@ -36,8 +36,8 @@ const BOT_COLLIDER_HALF_SIZE = 0.8;
 const BOT_COUNT = 18;
 const BOT_AGGRO_RANGE = 60;
 const BOT_MELEE_RANGE = 3;
-const BOT_MELEE_DAMAGE = 10;
-const BOT_ATTACK_COOLDOWN_TICKS = 60;
+const BOT_MELEE_DAMAGE = 12;
+const BOT_ATTACK_COOLDOWN_TICKS = 50;
 const BOT_RESPAWN_DELAY_MS = 10000;
 const SUMMONER_PET_COUNT = 3;
 const SUMMONER_FOLLOW_DISTANCE = 6;
@@ -86,38 +86,47 @@ function initializeMapEnvironment() {
 initializeMapEnvironment();
 
 // Class Definitions
+// attackType: 'melee' = close-range arc attack, 'ranged' = fires projectile
 const CLASS_DEFS = {
   warrior: {
-    type: 'cube', maxHealth: 150, currentHealth: 150, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.0, attackCooldown: 500, damageMultiplier: 1.0, baseDamage: 20,
+    type: 'cube', maxHealth: 160, currentHealth: 160, maxMana: 50, currentMana: 50,
+    speedMultiplier: 0.85, attackCooldown: 550, damageMultiplier: 1.0, baseDamage: 22, attackType: 'melee',
   },
   archer: {
-    type: 'pyramid', maxHealth: 80, currentHealth: 80, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.2, attackCooldown: 300, damageMultiplier: 1.0, baseDamage: 15,
+    type: 'pyramid', maxHealth: 85, currentHealth: 85, maxMana: 50, currentMana: 50,
+    speedMultiplier: 1.2, attackCooldown: 280, damageMultiplier: 1.0, baseDamage: 12, attackType: 'ranged',
   },
   mage: {
     type: 'icosahedron', maxHealth: 90, currentHealth: 90, maxMana: 50, currentMana: 50,
-    speedMultiplier: 0.9, attackCooldown: 800, damageMultiplier: 1.5, baseDamage: 15,
+    speedMultiplier: 0.9, attackCooldown: 750, damageMultiplier: 1.4, baseDamage: 18, attackType: 'ranged',
   },
   priest: {
-    type: 'torus', maxHealth: 120, currentHealth: 120, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.1, attackCooldown: 400, damageMultiplier: 0.6, baseDamage: 15,
+    type: 'torus', maxHealth: 110, currentHealth: 110, maxMana: 50, currentMana: 50,
+    speedMultiplier: 1.05, attackCooldown: 400, damageMultiplier: 0.6, baseDamage: 10, attackType: 'ranged',
   },
   assassin: {
-    type: 'octahedron', maxHealth: 70, currentHealth: 70, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.4, attackCooldown: 260, damageMultiplier: 1.5, baseDamage: 18,
+    type: 'octahedron', maxHealth: 75, currentHealth: 75, maxMana: 50, currentMana: 50,
+    speedMultiplier: 1.35, attackCooldown: 300, damageMultiplier: 1.3, baseDamage: 20, attackType: 'melee',
   },
   summoner: {
-    type: 'hexagon', maxHealth: 100, currentHealth: 100, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.0, attackCooldown: 420, damageMultiplier: 0.8, baseDamage: 13,
+    type: 'hexagon', maxHealth: 95, currentHealth: 95, maxMana: 50, currentMana: 50,
+    speedMultiplier: 1.0, attackCooldown: 450, damageMultiplier: 0.8, baseDamage: 11, attackType: 'ranged',
   },
   chaos: {
     type: 'dodecahedron', maxHealth: 90, currentHealth: 90, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.0, attackCooldown: 500, damageMultiplier: 1.2, baseDamage: 16,
+    speedMultiplier: 1.0, attackCooldown: 500, damageMultiplier: 1.1, baseDamage: 14, attackType: 'ranged',
   },
   engineer: {
-    type: 'cylinder', maxHealth: 120, currentHealth: 120, maxMana: 50, currentMana: 50,
-    speedMultiplier: 0.9, attackCooldown: 350, damageMultiplier: 1.0, baseDamage: 15,
+    type: 'cylinder', maxHealth: 110, currentHealth: 110, maxMana: 50, currentMana: 50,
+    speedMultiplier: 0.9, attackCooldown: 380, damageMultiplier: 1.0, baseDamage: 13, attackType: 'ranged',
+  },
+  paladin: {
+    type: 'torusknot', maxHealth: 140, currentHealth: 140, maxMana: 50, currentMana: 50,
+    speedMultiplier: 0.9, attackCooldown: 500, damageMultiplier: 0.9, baseDamage: 19, attackType: 'melee',
+  },
+  necromancer: {
+    type: 'capsule', maxHealth: 80, currentHealth: 80, maxMana: 50, currentMana: 50,
+    speedMultiplier: 0.95, attackCooldown: 650, damageMultiplier: 1.3, baseDamage: 16, attackType: 'ranged',
   },
 };
 
@@ -177,6 +186,20 @@ const CLASS_SKILLS = {
     { id: 'mineExpert', name: 'Mine Expert', emoji: '💣', description: 'Explosive expertise raises base damage.', maxLevel: 5 },
     { id: 'autoLoader', name: 'Auto Loader', emoji: '🔩', description: 'Auto-loading decreases attack cooldown.', maxLevel: 5 },
     { id: 'droneMatrix', name: 'Drone Matrix', emoji: '🛠️', description: 'Constructor matrix strengthens chassis.', maxLevel: 5 },
+  ],
+  paladin: [
+    { id: 'holyFortitude', name: 'Holy Fortitude', emoji: '⛪', description: 'Divine blessing raises max HP.', maxLevel: 5 },
+    { id: 'radiantStrike', name: 'Radiant Strike', emoji: '☀️', description: 'Holy light empowers your attacks.', maxLevel: 5 },
+    { id: 'divineWrath', name: 'Divine Wrath', emoji: '⚔️', description: 'Righteous fury amplifies damage.', maxLevel: 5 },
+    { id: 'crusaderMarch', name: 'Crusader March', emoji: '🏃', description: 'Blessed stride increases speed.', maxLevel: 5 },
+    { id: 'sacredArmor', name: 'Sacred Armor', emoji: '🛡️', description: 'Holy armor reinforces your body.', maxLevel: 5 },
+  ],
+  necromancer: [
+    { id: 'soulHarvest', name: 'Soul Harvest', emoji: '👻', description: 'Harvested souls bolster survivability.', maxLevel: 5 },
+    { id: 'deathMark', name: 'Death Mark', emoji: '💀', description: 'Cursed strikes increase base damage.', maxLevel: 5 },
+    { id: 'witherGrasp', name: 'Wither Grasp', emoji: '🦴', description: 'Necrotic grip raises base damage.', maxLevel: 5 },
+    { id: 'darkPact', name: 'Dark Pact', emoji: '🖤', description: 'Unholy pact amplifies damage output.', maxLevel: 5 },
+    { id: 'spectralHaste', name: 'Spectral Haste', emoji: '👤', description: 'Ghostly speed enhances movement.', maxLevel: 5 },
   ],
 };
 
@@ -276,26 +299,34 @@ function spawnOrb() {
   orbs[id] = { id, x: pos.x, y: 0.5, z: pos.z };
 }
 
+const BOT_VARIANTS = [
+  { botType: 'grunt',  maxHealth: 60,  speed: 0.5,  scale: 1.3, bountyMult: 1.0 },
+  { botType: 'brute',  maxHealth: 100, speed: 0.35, scale: 1.8, bountyMult: 1.5 },
+  { botType: 'scout',  maxHealth: 40,  speed: 0.75, scale: 1.0, bountyMult: 0.8 },
+];
+
 function spawnBot() {
   const spawn = getOpenMapPosition(BOT_COLLIDER_HALF_SIZE);
   const id = `bot_${botIdCounter++}`;
+  const variant = BOT_VARIANTS[Math.floor(Math.random() * BOT_VARIANTS.length)];
   bots.push({
     id,
     type: 'bot',
+    botType: variant.botType,
     x: spawn.x,
     z: spawn.z,
-    maxHealth: 50,
-    currentHealth: 50,
-    speed: 0.5,
+    maxHealth: variant.maxHealth,
+    currentHealth: variant.maxHealth,
+    speed: variant.speed,
     attackCooldown: 0,
-    scale: 1,
+    scale: variant.scale,
     color: 'grey',
     lastAttackerId: null,
     ownerId: null,
     ownerTeam: null,
     isSummon: false,
     respawnOnDeath: true,
-    bountyExp: BOT_BOUNTY_EXP,
+    bountyExp: Math.round(BOT_BOUNTY_EXP * variant.bountyMult),
   });
 }
 
@@ -351,6 +382,9 @@ function applySelectedSkillEffect(player, skillId) {
     case 'droneMatrix':
     case 'smokeVeil':
     case 'sacredBloom':
+    case 'holyFortitude':
+    case 'sacredArmor':
+    case 'soulHarvest':
       player.maxHealth += 12;
       player.currentHealth += 12;
       break;
@@ -361,6 +395,9 @@ function applySelectedSkillEffect(player, skillId) {
     case 'spiritFangs':
     case 'realityRend':
     case 'mineExpert':
+    case 'radiantStrike':
+    case 'deathMark':
+    case 'witherGrasp':
       player.baseDamage += 2;
       break;
     case 'battleCry':
@@ -368,6 +405,8 @@ function applySelectedSkillEffect(player, skillId) {
     case 'mirrorPain':
     case 'eagleEye':
     case 'voidPulse':
+    case 'divineWrath':
+    case 'darkPact':
       player.damageMultiplier += 0.07;
       break;
     case 'fortressStride':
@@ -377,6 +416,8 @@ function applySelectedSkillEffect(player, skillId) {
     case 'wildGrowth':
     case 'hexedMomentum':
     case 'overclock':
+    case 'crusaderMarch':
+    case 'spectralHaste':
       player.speedMultiplier += 0.03;
       break;
     case 'quickdraw':
@@ -842,6 +883,42 @@ io.on('connection', (socket) => {
     } else if (p.classType === 'engineer') {
       spawnTurret(p);
       emittedCast = true;
+    } else if (p.classType === 'paladin') {
+      for (const eid in players) {
+        const ally = players[eid];
+        if (ally.team !== p.team || ally.permaDead) continue;
+        const dX = ally.x - p.x; const dZ = ally.z - p.z;
+        if (dX * dX + dZ * dZ <= 25 * 25) {
+          ally.isInvincible = true;
+          setTimeout(() => { if (players[eid]) players[eid].isInvincible = false; }, 2000);
+        }
+      }
+      emittedCast = true;
+    } else if (p.classType === 'necromancer') {
+      let totalDmg = 0;
+      for (const eid in players) {
+        if (eid === socket.id) continue;
+        const enemy = players[eid];
+        if (enemy.team === p.team || enemy.permaDead || enemy.isInvincible) continue;
+        const dX = enemy.x - p.x; const dZ = enemy.z - p.z;
+        if (dX * dX + dZ * dZ <= 20 * 20) {
+          const dmg = 50 * p.damageMultiplier;
+          enemy.currentHealth -= dmg;
+          enemy.lastAttackerId = socket.id;
+          totalDmg += dmg;
+          io.emit('combatEvent', { type: 'damage', x: enemy.x, z: enemy.z, amount: Math.round(dmg), color: enemy.color });
+        }
+      }
+      for (const bot of bots) {
+        const dX = bot.x - p.x; const dZ = bot.z - p.z;
+        if (dX * dX + dZ * dZ <= 20 * 20) {
+          const dmg = 50 * p.damageMultiplier;
+          applyBotDamage(bot, dmg, socket.id);
+          totalDmg += dmg;
+        }
+      }
+      p.currentHealth = Math.min(p.currentHealth + totalDmg * 0.5, p.maxHealth);
+      emittedCast = true;
     }
 
     if (emittedCast) io.emit('ultimateCast', castPayload);
@@ -865,7 +942,8 @@ io.on('connection', (socket) => {
     if (dist === 0) return;
     const dirX = dx / dist; const dirZ = dz / dist;
 
-    if (p.classType === 'warrior') {
+    const classDef = CLASS_DEFS[p.classType] || {};
+    if (classDef.attackType === 'melee') {
       for (const eid in players) {
         if (eid === socket.id) continue;
         const enemy = players[eid];
@@ -928,19 +1006,19 @@ io.on('connection', (socket) => {
       const projId = `proj_${projIdCounter++}`;
       if (p.classType === 'engineer') {
         projectiles[projId] = {
-          id: projId, kind: 'mine', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerDamageMult: p.damageMultiplier,
+          id: projId, kind: 'mine', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerClass: p.classType, ownerDamageMult: p.damageMultiplier,
           ownerBaseDamage: p.baseDamage,
           x: p.x, z: p.z, vx: 0, vz: 0, life: ENGINEER_MINE_LIFESPAN,
         };
       } else if (p.classType === 'summoner') {
         projectiles[projId] = {
-          id: projId, kind: 'summoner_homing', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerDamageMult: p.damageMultiplier,
+          id: projId, kind: 'summoner_homing', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerClass: p.classType, ownerDamageMult: p.damageMultiplier,
           ownerBaseDamage: p.baseDamage,
           x: p.x, z: p.z, vx: dirX * PROJECTILE_SPEED * 0.75, vz: dirZ * PROJECTILE_SPEED * 0.75, life: 2.0,
         };
       } else {
         projectiles[projId] = {
-          id: projId, kind: 'normal', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerDamageMult: p.damageMultiplier,
+          id: projId, kind: 'normal', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerClass: p.classType, ownerDamageMult: p.damageMultiplier,
           ownerBaseDamage: p.baseDamage,
           x: p.x, z: p.z, vx: dirX * PROJECTILE_SPEED, vz: dirZ * PROJECTILE_SPEED, life: PROJECTILE_LIFESPAN,
         };
