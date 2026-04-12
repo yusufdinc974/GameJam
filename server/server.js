@@ -235,7 +235,7 @@ const clientDistPath = path.join(__dirname, '../client/dist');
 app.use(express.static(clientDistPath));
 
 // Serve index.html for all routes (SPA fallback)
-app.get('*', (req, res) => {
+app.get(/.*/, (req, res) => {
   res.sendFile(path.join(clientDistPath, 'index.html'));
 });
 
