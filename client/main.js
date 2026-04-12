@@ -620,39 +620,144 @@ function removeOrbMesh(id) {
 }
 
 const projMeshes = {};
-const projGeoDefault = new THREE.SphereGeometry(0.15, 8, 8);
-const projGeoArrow = new THREE.ConeGeometry(0.08, 0.4, 6);
-const projGeoBolt = new THREE.IcosahedronGeometry(0.2, 0);
-const projGeoOrb = new THREE.SphereGeometry(0.22, 10, 10);
-const projGeoCurse = new THREE.TetrahedronGeometry(0.18, 0);
-const projGeoHex = new THREE.OctahedronGeometry(0.14, 0);
+
+// ── Shared Projectile Geometries (allocated once) ──────────────────────────
+const projGeoDefault = new THREE.SphereGeometry(0.3, 8, 8);
+// Archer
+const projGeoArrowShaft = new THREE.CylinderGeometry(0.06, 0.06, 1.0, 6);
+const projGeoArrowHead = new THREE.ConeGeometry(0.18, 0.35, 6);
+// Mage
+const projGeoBoltCore = new THREE.IcosahedronGeometry(0.45, 1);
+const projGeoBoltShell = new THREE.IcosahedronGeometry(0.6, 0);
+// Priest
+const projGeoOrbCore = new THREE.SphereGeometry(0.4, 12, 12);
+const projGeoOrbRing = new THREE.RingGeometry(0.5, 0.65, 16);
+// Summoner
+const projGeoHomingCore = new THREE.SphereGeometry(0.35, 8, 8);
+const projGeoHomingFin = new THREE.ConeGeometry(0.12, 0.5, 4);
+// Chaos
+const projGeoHexOuter = new THREE.OctahedronGeometry(0.4, 0);
+const projGeoHexInner = new THREE.OctahedronGeometry(0.22, 0);
+// Necromancer
+const projGeoCurseOuter = new THREE.TetrahedronGeometry(0.45, 0);
+const projGeoCurseInner = new THREE.TetrahedronGeometry(0.45, 0);
+
+// ── Shared Accent Materials (reused across all projectiles) ────────────────
+const projAccentWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const projGreenGlowMat = new THREE.MeshBasicMaterial({
+  color: 0x00ff44, transparent: true, opacity: 0.5,
+  blending: THREE.AdditiveBlending
+});
+
+// Engineer mine geometry
+const projGeoMineBody = new THREE.CylinderGeometry(0.4, 0.45, 0.2, 8);
+const projGeoMineSpike = new THREE.ConeGeometry(0.08, 0.25, 4);
 
 function createProjMesh(id, data) {
-  if (data.visible === false || data.kind === 'mine') return;
+  if (data.visible === false) return;
   const kind = data.kind || 'normal';
   const color = data.ownerColor || '#74b9ff';
   const ownerClass = data.ownerClass || '';
-  const emissiveBoost = kind === 'turret_shot' ? 0.65 : (kind === 'summoner_homing' ? 0.85 : 1.0);
-  const mat = new THREE.MeshToonMaterial({
-    color: new THREE.Color(color),
-    emissive: new THREE.Color(color),
-    emissiveIntensity: emissiveBoost
-  });
-  let geo = projGeoDefault;
-  if (ownerClass === 'archer') geo = projGeoArrow;
-  else if (ownerClass === 'mage') geo = projGeoBolt;
-  else if (ownerClass === 'priest') geo = projGeoOrb;
-  else if (ownerClass === 'necromancer') geo = projGeoCurse;
-  else if (ownerClass === 'chaos') geo = projGeoHex;
-  else if (kind === 'summoner_homing') geo = projGeoOrb;
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(data.x, 0.5, data.z);
-  scene.add(mesh);
-  projMeshes[id] = { mesh, targetX: data.x, targetZ: data.z, kind, ownerClass };
+  const c = new THREE.Color(color);
+  const group = new THREE.Group();
+  group.position.set(data.x, 0.5, data.z);
+  const entry = { mesh: group, targetX: data.x, targetZ: data.z, kind, ownerClass };
+
+  if (ownerClass === 'archer') {
+    // Elongated arrow: shaft + white tip, pre-rotated so arrow points along local +Z
+    const shaftMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 0.5 });
+    const shaft = new THREE.Mesh(projGeoArrowShaft, shaftMat);
+    shaft.rotation.x = Math.PI / 2; // lay cylinder from Y-axis to Z-axis
+    const head = new THREE.Mesh(projGeoArrowHead, projAccentWhiteMat);
+    head.rotation.x = Math.PI / 2; // cone tip points along +Z
+    head.position.z = 0.65;
+    group.add(shaft, head);
+  } else if (ownerClass === 'mage') {
+    // Double-shell arcane bolt
+    const innerMat = new THREE.MeshBasicMaterial({ color: c });
+    const inner = new THREE.Mesh(projGeoBoltCore, innerMat);
+    const shellMat = new THREE.MeshBasicMaterial({
+      color: c, transparent: true, opacity: 0.3,
+      blending: THREE.AdditiveBlending
+    });
+    const shell = new THREE.Mesh(projGeoBoltShell, shellMat);
+    group.add(inner, shell);
+    entry.inner = inner;
+    entry.shell = shell;
+  } else if (ownerClass === 'priest') {
+    // Healing orb with halo ring
+    const coreMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 0.9 });
+    const core = new THREE.Mesh(projGeoOrbCore, coreMat);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.5,
+      side: THREE.DoubleSide
+    });
+    const ring = new THREE.Mesh(projGeoOrbRing, ringMat);
+    ring.rotation.x = Math.PI / 2;
+    group.add(core, ring);
+    entry.ring = ring;
+  } else if (ownerClass === 'necromancer') {
+    // Merkaba: interlocking tetrahedra with green glow
+    const outerMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 0.7 });
+    const outer = new THREE.Mesh(projGeoCurseOuter, outerMat);
+    const inner = new THREE.Mesh(projGeoCurseInner, projGreenGlowMat);
+    inner.rotation.x = Math.PI; // inverted
+    group.add(outer, inner);
+    entry.inner = inner;
+  } else if (ownerClass === 'chaos') {
+    // Nested counter-rotating octahedra
+    const outerMat = new THREE.MeshBasicMaterial({
+      color: c, transparent: true, opacity: 0.45,
+      side: THREE.DoubleSide
+    });
+    const outer = new THREE.Mesh(projGeoHexOuter, outerMat);
+    const innerMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 1.0 });
+    const inner = new THREE.Mesh(projGeoHexInner, innerMat);
+    group.add(outer, inner);
+    entry.inner = inner;
+    entry.shell = outer;
+  } else if (kind === 'summoner_homing') {
+    // Homing tracker with 4 fins
+    const coreMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 0.85 });
+    const core = new THREE.Mesh(projGeoHomingCore, coreMat);
+    group.add(core);
+    const finMat = new THREE.MeshToonMaterial({ color: 0x222222, emissive: c, emissiveIntensity: 0.3 });
+    for (let i = 0; i < 4; i++) {
+      const angle = (Math.PI / 2) * i;
+      const fin = new THREE.Mesh(projGeoHomingFin, finMat);
+      fin.position.set(Math.cos(angle) * 0.3, 0, Math.sin(angle) * 0.3);
+      fin.rotation.x = Math.PI;
+      fin.rotation.y = angle;
+      group.add(fin);
+    }
+  } else if (kind === 'mine') {
+    // Engineer mine: flat disc with spikes, sits on the ground
+    group.position.y = 0.12;
+    const bodyMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 0.6 });
+    const body = new THREE.Mesh(projGeoMineBody, bodyMat);
+    group.add(body);
+    const spikeMat = new THREE.MeshBasicMaterial({ color: 0xff4444 });
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 3) * i;
+      const spike = new THREE.Mesh(projGeoMineSpike, spikeMat);
+      spike.position.set(Math.cos(angle) * 0.32, 0.15, Math.sin(angle) * 0.32);
+      group.add(spike);
+    }
+  } else {
+    // Default / turret_shot: simple larger sphere
+    const mat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 1.0 });
+    group.add(new THREE.Mesh(projGeoDefault, mat));
+  }
+
+  scene.add(group);
+  projMeshes[id] = entry;
 }
 function removeProjMesh(id) {
   const entry = projMeshes[id];
-  if (!entry) return; scene.remove(entry.mesh); entry.mesh.material.dispose(); delete projMeshes[id];
+  if (!entry) return;
+  entry.mesh.traverse(obj => { if (obj.isMesh && obj.material !== projAccentWhiteMat && obj.material !== projGreenGlowMat) obj.material.dispose(); });
+  scene.remove(entry.mesh);
+  delete projMeshes[id];
 }
 
 // ── Base Entity Management ──────────────────────────────────────────────────
@@ -905,12 +1010,14 @@ function getSwingMat(color) {
   swingMatCache[color] = mat;
   return mat;
 }
-function spawnSwingArc(x, z, rotY, color) {
+function spawnSwingArc(x, z, aimRotY, color) {
   const mat = getSwingMat(color);
   const mesh = new THREE.Mesh(swingGeo, mat.clone());
   mesh.position.set(x, 0.5, z);
   mesh.rotation.x = -Math.PI / 2;
-  mesh.rotation.z = rotY - Math.PI / 4;
+  // aimRotY points away from target (has +PI), so subtract PI to face toward target,
+  // then subtract PI/4 to center the 90° arc on the aim direction
+  mesh.rotation.z = aimRotY - Math.PI - Math.PI / 4;
   scene.add(mesh);
   swingArcs.push({ mesh, life: 0.25 });
 }
@@ -1436,7 +1543,7 @@ socket.on('stateUpdate', (state) => {
   const activeProjIds = new Set();
   for (const id in projData) {
     const proj = projData[id];
-    if (!proj || proj.visible === false || proj.kind === 'mine') {
+    if (!proj || proj.visible === false) {
       if (projMeshes[id]) removeProjMesh(id);
       continue;
     }
@@ -1777,6 +1884,14 @@ function doAttack() {
   socket.emit('attack', { targetX: intersection.x, targetZ: intersection.z });
   if (myId && playerMeshes[myId]) {
     const entry = playerMeshes[myId];
+    // Snap rotation to aim direction immediately on attack
+    const atkDx = intersection.x - entry.mesh.position.x;
+    const atkDz = intersection.z - entry.mesh.position.z;
+    if (atkDx * atkDx + atkDz * atkDz > 0.0001) {
+      const aimRot = Math.atan2(atkDx, atkDz) + Math.PI;
+      entry.targetRotY = aimRot;
+      entry.mesh.rotation.y = aimRot;
+    }
     if (entry.mixer) {
       entry.isAttacking = true;
       entry.attackTimer = ATTACK_ANIM_DURATION;
@@ -1786,7 +1901,11 @@ function doAttack() {
     if (MELEE_CLASSES.has(entry.currentType)) {
       const m = entry.mesh;
       const color = entry.team === 'red' ? '#ff4444' : '#4488ff';
-      spawnSwingArc(m.position.x, m.position.z, m.rotation.y, color);
+      // Use aim direction directly instead of lerped mesh rotation
+      const aimDx = intersection.x - m.position.x;
+      const aimDz = intersection.z - m.position.z;
+      const aimRotY = Math.atan2(aimDx, aimDz) + Math.PI;
+      spawnSwingArc(m.position.x, m.position.z, aimRotY, color);
     }
   }
 }
@@ -1866,6 +1985,8 @@ document.getElementById('btn-assassin').addEventListener('click', function() { s
 document.getElementById('btn-summoner').addEventListener('click', function() { selectCharacter('summoner', this); });
 document.getElementById('btn-chaos').addEventListener('click', function() { selectCharacter('chaos', this); });
 document.getElementById('btn-engineer').addEventListener('click', function() { selectCharacter('engineer', this); });
+document.getElementById('btn-paladin').addEventListener('click', function() { selectCharacter('paladin', this); });
+document.getElementById('btn-necromancer').addEventListener('click', function() { selectCharacter('necromancer', this); });
 
 enterArenaBtn.addEventListener('click', () => {
   if (selectedCharacter) joinGame(selectedCharacter);
@@ -2079,20 +2200,45 @@ function animate() {
     const entry = projMeshes[id];
     entry.mesh.position.x += (entry.targetX - entry.mesh.position.x) * 0.5;
     entry.mesh.position.z += (entry.targetZ - entry.mesh.position.z) * 0.5;
-    // Rotate projectiles for visual flair
+    // Per-class projectile animations
     if (entry.ownerClass === 'archer') {
-      // Arrow points in direction of travel
+      // Arrow points in direction of travel (group's +Z faces forward)
       const dx = entry.targetX - entry.mesh.position.x;
       const dz = entry.targetZ - entry.mesh.position.z;
       if (dx * dx + dz * dz > 0.001) {
-        entry.mesh.rotation.x = Math.PI / 2;
-        entry.mesh.rotation.z = Math.atan2(dx, dz);
+        entry.mesh.rotation.y = Math.atan2(dx, dz);
       }
-    } else if (entry.ownerClass === 'mage' || entry.ownerClass === 'chaos' || entry.ownerClass === 'necromancer') {
-      entry.mesh.rotation.x += delta * 6;
-      entry.mesh.rotation.y += delta * 8;
+    } else if (entry.ownerClass === 'mage') {
+      // Inner core tumbles fast, outer shell counter-rotates slowly
+      if (entry.inner) { entry.inner.rotation.x += delta * 8; entry.inner.rotation.y += delta * 12; }
+      if (entry.shell) { entry.shell.rotation.y -= delta * 4; entry.shell.rotation.z += delta * 2; }
+    } else if (entry.ownerClass === 'chaos') {
+      // Outer wobbles erratically, inner counter-rotates
+      if (entry.shell) { entry.shell.rotation.x += delta * 5; entry.shell.rotation.y += Math.sin(elapsed * 12) * delta * 10; entry.shell.rotation.z += delta * 7; }
+      if (entry.inner) { entry.inner.rotation.x -= delta * 7; entry.inner.rotation.y -= delta * 9; entry.inner.rotation.z += delta * 4; }
+      const cs = 1.0 + Math.sin(elapsed * 10) * 0.1;
+      entry.mesh.scale.set(cs, cs, cs);
+    } else if (entry.ownerClass === 'necromancer') {
+      // Slow eerie spin, inner counter-rotates, scale pulses
+      entry.mesh.rotation.y += delta * 3;
+      entry.mesh.rotation.x = Math.sin(elapsed * 4) * 0.5;
+      if (entry.inner) { entry.inner.rotation.y -= delta * 2; }
+      const ns = 1.0 + Math.sin(elapsed * 6) * 0.15;
+      entry.mesh.scale.set(ns, ns, ns);
+    } else if (entry.ownerClass === 'priest') {
+      // Halo ring spins, core bobs and pulses
+      if (entry.ring) { entry.ring.rotation.z += delta * 5; }
+      entry.mesh.position.y = 0.5 + Math.sin(elapsed * 5 + entry.mesh.position.x) * 0.12;
+      const ps = 1.0 + Math.sin(elapsed * 3) * 0.08;
+      entry.mesh.scale.set(ps, ps, ps);
     } else if (entry.kind === 'summoner_homing') {
+      // Whole group spins fast — fins create pinwheel
       entry.mesh.rotation.y += delta * 10;
+    } else if (entry.kind === 'mine') {
+      // Mine sits on ground, slow spin + pulse
+      entry.mesh.rotation.y += delta * 1.5;
+      const ms = 1.0 + Math.sin(elapsed * 4) * 0.06;
+      entry.mesh.scale.set(ms, ms, ms);
     }
   }
   for (const teamKey in baseMeshes) {

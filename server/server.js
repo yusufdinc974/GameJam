@@ -110,7 +110,7 @@ const CLASS_DEFS = {
   },
   summoner: {
     type: 'hexagon', maxHealth: 95, currentHealth: 95, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.0, attackCooldown: 450, damageMultiplier: 0.8, baseDamage: 11, attackType: 'ranged',
+    speedMultiplier: 1.0, attackCooldown: 2000, damageMultiplier: 0.8, baseDamage: 11, attackType: 'summon',
   },
   chaos: {
     type: 'dodecahedron', maxHealth: 90, currentHealth: 90, maxMana: 50, currentMana: 50,
@@ -835,30 +835,29 @@ io.on('connection', (socket) => {
       }
       emittedCast = true;
     } else if (p.classType === 'summoner') {
-      for (let i = 0; i < SUMMONER_PET_COUNT; i++) {
-        const angle = (Math.PI * 2 * i) / SUMMONER_PET_COUNT + Math.random() * 0.5;
-        const offsetDist = 2.2 + Math.random() * 1.2;
+      // Ult: spawn 1 strong melee unit + 1 strong ranged unit
+      const ultSummons = [
+        { summonType: 'elite_melee', maxHealth: 80, speed: 0.6, scale: 1.2, attackRange: BOT_MELEE_RANGE },
+        { summonType: 'elite_ranged', maxHealth: 55, speed: 0.5, scale: 1.0, attackRange: 12 },
+      ];
+      for (let i = 0; i < ultSummons.length; i++) {
+        const def = ultSummons[i];
+        const angle = (Math.PI * 2 * i) / ultSummons.length + Math.random() * 0.5;
+        const offsetDist = 2.2 + Math.random() * 1.0;
         const summonX = clampToMap(p.x + Math.cos(angle) * offsetDist, BOT_COLLIDER_HALF_SIZE);
         const summonZ = clampToMap(p.z + Math.sin(angle) * offsetDist, BOT_COLLIDER_HALF_SIZE);
         const resolved = resolveWallCollision(p.x, p.z, summonX, summonZ, BOT_COLLIDER_HALF_SIZE);
         bots.push({
-          id: `bot_${botIdCounter++}`,
-          type: 'bot',
+          id: `bot_${botIdCounter++}`, type: 'bot',
           x: clampToMap(resolved.x, BOT_COLLIDER_HALF_SIZE),
           z: clampToMap(resolved.z, BOT_COLLIDER_HALF_SIZE),
-          maxHealth: 40,
-          currentHealth: 40,
-          speed: 0.7,
-          attackCooldown: 0,
-          scale: 0.85,
-          color: 'grey',
-          team: p.team,
-          lastAttackerId: null,
-          ownerId: socket.id,
-          ownerTeam: p.team,
-          isSummon: true,
-          respawnOnDeath: false,
-          bountyExp: 0,
+          maxHealth: def.maxHealth, currentHealth: def.maxHealth,
+          speed: def.speed, attackCooldown: 0, scale: def.scale,
+          color: 'grey', team: p.team, lastAttackerId: null,
+          ownerId: socket.id, ownerTeam: p.team,
+          isSummon: true, summonType: def.summonType,
+          attackRange: def.attackRange,
+          respawnOnDeath: false, bountyExp: 0,
         });
       }
       emittedCast = true;
@@ -943,7 +942,26 @@ io.on('connection', (socket) => {
     const dirX = dx / dist; const dirZ = dz / dist;
 
     const classDef = CLASS_DEFS[p.classType] || {};
-    if (classDef.attackType === 'melee') {
+    if (classDef.attackType === 'summon') {
+      // Summoner: spawn a weak melee minion at click direction
+      const activeSummons = bots.filter(b => b.ownerId === socket.id && b.isSummon && b.currentHealth > 0);
+      if (activeSummons.length >= 6) return; // cap summons
+      const spawnDist = 1.5;
+      const summonX = clampToMap(p.x + dirX * spawnDist, BOT_COLLIDER_HALF_SIZE);
+      const summonZ = clampToMap(p.z + dirZ * spawnDist, BOT_COLLIDER_HALF_SIZE);
+      const resolved = resolveWallCollision(p.x, p.z, summonX, summonZ, BOT_COLLIDER_HALF_SIZE);
+      bots.push({
+        id: `bot_${botIdCounter++}`, type: 'bot',
+        x: clampToMap(resolved.x, BOT_COLLIDER_HALF_SIZE),
+        z: clampToMap(resolved.z, BOT_COLLIDER_HALF_SIZE),
+        maxHealth: 25, currentHealth: 25, speed: 0.65,
+        attackCooldown: 0, scale: 0.6, color: 'grey',
+        team: p.team, lastAttackerId: null,
+        ownerId: socket.id, ownerTeam: p.team,
+        isSummon: true, summonType: 'basic',
+        respawnOnDeath: false, bountyExp: 0,
+      });
+    } else if (classDef.attackType === 'melee') {
       for (const eid in players) {
         if (eid === socket.id) continue;
         const enemy = players[eid];
@@ -1009,12 +1027,6 @@ io.on('connection', (socket) => {
           id: projId, kind: 'mine', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerClass: p.classType, ownerDamageMult: p.damageMultiplier,
           ownerBaseDamage: p.baseDamage,
           x: p.x, z: p.z, vx: 0, vz: 0, life: ENGINEER_MINE_LIFESPAN,
-        };
-      } else if (p.classType === 'summoner') {
-        projectiles[projId] = {
-          id: projId, kind: 'summoner_homing', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerClass: p.classType, ownerDamageMult: p.damageMultiplier,
-          ownerBaseDamage: p.baseDamage,
-          x: p.x, z: p.z, vx: dirX * PROJECTILE_SPEED * 0.75, vz: dirZ * PROJECTILE_SPEED * 0.75, life: 2.0,
         };
       } else {
         projectiles[projId] = {
@@ -1095,15 +1107,19 @@ setInterval(() => {
     }
 
     if (closestTarget && closestDistSq <= BOT_AGGRO_RANGE * BOT_AGGRO_RANGE) {
-      const targetEntity = closestTarget.entity;
-      const dist = Math.sqrt(closestDistSq) || 1;
-      const dirX = (targetEntity.x - bot.x) / dist;
-      const dirZ = (targetEntity.z - bot.z) / dist;
-      const intendedX = clampToMap(bot.x + dirX * bot.speed, BOT_COLLIDER_HALF_SIZE);
-      const intendedZ = clampToMap(bot.z + dirZ * bot.speed, BOT_COLLIDER_HALF_SIZE);
-      const resolved = resolveWallCollision(bot.x, bot.z, intendedX, intendedZ, BOT_COLLIDER_HALF_SIZE);
-      bot.x = clampToMap(resolved.x, BOT_COLLIDER_HALF_SIZE);
-      bot.z = clampToMap(resolved.z, BOT_COLLIDER_HALF_SIZE);
+      // Ranged summons stop at their attack range, others chase into melee
+      const stopRange = bot.attackRange || BOT_MELEE_RANGE;
+      if (closestDistSq > stopRange * stopRange * 0.8) {
+        const targetEntity = closestTarget.entity;
+        const dist = Math.sqrt(closestDistSq) || 1;
+        const dirX = (targetEntity.x - bot.x) / dist;
+        const dirZ = (targetEntity.z - bot.z) / dist;
+        const intendedX = clampToMap(bot.x + dirX * bot.speed, BOT_COLLIDER_HALF_SIZE);
+        const intendedZ = clampToMap(bot.z + dirZ * bot.speed, BOT_COLLIDER_HALF_SIZE);
+        const resolved = resolveWallCollision(bot.x, bot.z, intendedX, intendedZ, BOT_COLLIDER_HALF_SIZE);
+        bot.x = clampToMap(resolved.x, BOT_COLLIDER_HALF_SIZE);
+        bot.z = clampToMap(resolved.z, BOT_COLLIDER_HALF_SIZE);
+      }
     } else if (bot.ownerId && players[bot.ownerId] && !players[bot.ownerId].permaDead) {
       const owner = players[bot.ownerId];
       const dX = owner.x - bot.x;
@@ -1123,17 +1139,33 @@ setInterval(() => {
     const targetEntity = closestTarget.entity;
     const meleeDx = targetEntity.x - bot.x;
     const meleeDz = targetEntity.z - bot.z;
-    if (bot.attackCooldown <= 0 && (meleeDx * meleeDx + meleeDz * meleeDz) <= BOT_MELEE_RANGE * BOT_MELEE_RANGE) {
-      if (closestTarget.type === 'player') {
-        if (!targetEntity.isInvincible) {
-          targetEntity.currentHealth -= BOT_MELEE_DAMAGE;
-          targetEntity.lastAttackerId = bot.ownerId || null;
-          io.emit('combatEvent', { type: 'damage', x: targetEntity.x, z: targetEntity.z, amount: BOT_MELEE_DAMAGE, color: targetEntity.color });
-        }
+    const targetDistSq = meleeDx * meleeDx + meleeDz * meleeDz;
+    const botRange = bot.attackRange || BOT_MELEE_RANGE;
+    if (bot.attackCooldown <= 0 && targetDistSq <= botRange * botRange) {
+      if (bot.summonType === 'elite_ranged') {
+        // Ranged summon fires a projectile
+        const tDist = Math.sqrt(targetDistSq) || 1;
+        const dX = meleeDx / tDist; const dZ = meleeDz / tDist;
+        const projId = `proj_${projIdCounter++}`;
+        projectiles[projId] = {
+          id: projId, kind: 'summoner_homing', ownerId: bot.ownerId, ownerTeam: bot.team,
+          ownerColor: bot.team === 'red' ? '#ff6666' : '#6688ff', ownerClass: 'summoner',
+          ownerDamageMult: 1.0, ownerBaseDamage: 10,
+          x: bot.x, z: bot.z, vx: dX * PROJECTILE_SPEED * 0.6, vz: dZ * PROJECTILE_SPEED * 0.6, life: 1.5,
+        };
+        bot.attackCooldown = BOT_ATTACK_COOLDOWN_TICKS + 10;
       } else {
-        applyBotDamage(targetEntity, BOT_MELEE_DAMAGE, bot.ownerId || null);
+        if (closestTarget.type === 'player') {
+          if (!targetEntity.isInvincible) {
+            targetEntity.currentHealth -= BOT_MELEE_DAMAGE;
+            targetEntity.lastAttackerId = bot.ownerId || null;
+            io.emit('combatEvent', { type: 'damage', x: targetEntity.x, z: targetEntity.z, amount: BOT_MELEE_DAMAGE, color: targetEntity.color });
+          }
+        } else {
+          applyBotDamage(targetEntity, BOT_MELEE_DAMAGE, bot.ownerId || null);
+        }
+        bot.attackCooldown = BOT_ATTACK_COOLDOWN_TICKS;
       }
-      bot.attackCooldown = BOT_ATTACK_COOLDOWN_TICKS;
     }
   }
 
@@ -1510,8 +1542,9 @@ setInterval(() => {
       x: pr.x,
       z: pr.z,
       ownerColor: pr.ownerColor,
+      ownerClass: pr.ownerClass,
       kind: pr.kind || 'normal',
-      visible: pr.kind !== 'mine',
+      visible: true,
     }])),
     bots: bots.map((bot) => ({
       id: bot.id,
