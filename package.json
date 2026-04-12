@@ -5,13 +5,7 @@
   "main": "server/server.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm start\"",
-    "build:all": "cd client && npm install && npm run build",
-    "start": "npm run build:all && node server/server.js",
-    "postinstall": "cd server && npm install"
-  },
-  "dependencies": {
-    "concurrently": "^8.2.2"
+    "start": "bash start.sh"
   },
   "engines": {
     "node": "18.x || 20.x"
