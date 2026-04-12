@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "vite": "^8.0.4"
+    "vite": "^5.0.0"
   },
   "dependencies": {
     "socket.io-client": "^4.8.3",
