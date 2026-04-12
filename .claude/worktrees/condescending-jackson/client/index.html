@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Arena.io – Phase 9 – The Ultimates" />
+    <title>Arena.io – Phase 9</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Bangers&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; font-family: 'Inter', sans-serif; }
+      canvas { display: block; }
+
+      /* ── LOBBY ── */
+      #lobby {
+        position: fixed; inset: 0; z-index: 100;
+        display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+        background: radial-gradient(ellipse at 50% 30%, rgba(8,8,18,0.78) 0%, rgba(2,2,6,0.92) 100%);
+        backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+        transition: opacity 0.5s ease, visibility 0.5s ease;
+        overflow-y: auto; padding: 40px 16px 48px;
+      }
+      #lobby.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+      /* Title */
+      #lobby .lobby-title {
+        font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 64px;
+        letter-spacing: 0.14em; text-transform: uppercase; color: #fff;
+        text-shadow: 0 0 40px rgba(255,60,60,0.35), 0 0 80px rgba(255,120,60,0.15), 0 3px 0 #000, 0 6px 20px rgba(0,0,0,0.9);
+        margin-bottom: 0; position: relative;
+      }
+      #lobby .lobby-title::after {
+        content: ''; display: block; width: 60%; height: 3px; margin: 8px auto 0;
+        background: linear-gradient(90deg, transparent, #e74c3c, #f39c12, #e74c3c, transparent);
+        border-radius: 2px;
+      }
+      #lobby .lobby-subtitle {
+        font-family: 'Oswald', sans-serif; font-weight: 400; font-size: 14px;
+        color: rgba(255,255,255,0.3); margin-bottom: 24px; letter-spacing: 0.25em; text-transform: uppercase;
+      }
+
+      /* Username */
+      #lobby-username {
+        padding: 10px 20px; font-size: 15px; font-family: 'Oswald', sans-serif; font-weight: 500;
+        letter-spacing: 0.06em; text-transform: uppercase;
+        border-radius: 4px; border: 2px solid rgba(255,255,255,0.1);
+        background: rgba(0,0,0,0.5); color: #fff; margin-bottom: 28px; width: 320px; text-align: center;
+        outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+      }
+      #lobby-username::placeholder { color: rgba(255,255,255,0.2); text-transform: uppercase; letter-spacing: 0.08em; }
+      #lobby-username:focus { border-color: #e74c3c; box-shadow: 0 0 20px rgba(231,76,60,0.25), inset 0 0 20px rgba(231,76,60,0.05); }
+
+      /* Card grid */
+      #lobby .class-cards {
+        display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px;
+        max-width: 1150px; width: 100%; padding: 0 8px;
+      }
+      @media (max-width: 960px) { #lobby .class-cards { grid-template-columns: repeat(2, 1fr); max-width: 480px; } }
+      @media (max-width: 520px)  { #lobby .class-cards { grid-template-columns: 1fr; max-width: 260px; } }
+
+      /* Individual card */
+      .class-card {
+        position: relative; background: rgba(12,12,20,0.85);
+        border: 2px solid rgba(255,255,255,0.06); border-radius: 6px;
+        padding: 18px 16px 14px; text-align: center; cursor: pointer;
+        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        overflow: hidden;
+      }
+      .class-card::before {
+        content: ''; position: absolute; inset: 0; opacity: 0;
+        background: radial-gradient(ellipse at 50% 0%, var(--card-glow, rgba(255,255,255,0.08)) 0%, transparent 70%);
+        transition: opacity 0.25s ease; pointer-events: none;
+      }
+      .class-card:hover { transform: translateY(-4px); }
+      .class-card:hover::before { opacity: 1; }
+
+      .class-card .icon { font-size: 36px; margin-bottom: 8px; line-height: 1; }
+      .class-card .name {
+        font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 15px;
+        color: #fff; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.04em;
+      }
+      .class-card .role {
+        font-family: 'Oswald', sans-serif; font-weight: 500; font-size: 10px;
+        letter-spacing: 0.12em; margin-bottom: 8px; text-transform: uppercase;
+      }
+      .class-card .desc { font-size: 10px; color: rgba(255,255,255,0.3); line-height: 1.45; }
+
+      /* HP badge on cards */
+      .class-card .hp-badge {
+        position: absolute; top: 8px; right: 8px;
+        font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 10px;
+        color: rgba(255,255,255,0.5); background: rgba(0,0,0,0.5);
+        padding: 2px 6px; border-radius: 3px; letter-spacing: 0.04em;
+      }
+
+      /* Per-class colors */
+      .class-card.warrior  { --card-glow: rgba(231,76,60,0.15); }
+      .class-card.warrior  .role { color: #e74c3c; }
+      .class-card.warrior:hover  { border-color: rgba(231,76,60,0.5); box-shadow: 0 8px 30px rgba(231,76,60,0.2), inset 0 1px 0 rgba(231,76,60,0.15); }
+
+      .class-card.archer   { --card-glow: rgba(52,152,219,0.15); }
+      .class-card.archer   .role { color: #3498db; }
+      .class-card.archer:hover   { border-color: rgba(52,152,219,0.5); box-shadow: 0 8px 30px rgba(52,152,219,0.2), inset 0 1px 0 rgba(52,152,219,0.15); }
+
+      .class-card.mage     { --card-glow: rgba(155,89,182,0.15); }
+      .class-card.mage     .role { color: #9b59b6; }
+      .class-card.mage:hover     { border-color: rgba(155,89,182,0.5); box-shadow: 0 8px 30px rgba(155,89,182,0.2), inset 0 1px 0 rgba(155,89,182,0.15); }
+
+      .class-card.priest   { --card-glow: rgba(241,196,15,0.15); }
+      .class-card.priest   .role { color: #f1c40f; }
+      .class-card.priest:hover   { border-color: rgba(241,196,15,0.5); box-shadow: 0 8px 30px rgba(241,196,15,0.2), inset 0 1px 0 rgba(241,196,15,0.15); }
+
+      .class-card.assassin { --card-glow: rgba(149,165,166,0.12); }
+      .class-card.assassin .role { color: #bdc3c7; }
+      .class-card.assassin:hover { border-color: rgba(189,195,199,0.45); box-shadow: 0 8px 30px rgba(149,165,166,0.18), inset 0 1px 0 rgba(149,165,166,0.1); }
+
+      .class-card.summoner { --card-glow: rgba(46,204,113,0.15); }
+      .class-card.summoner .role { color: #2ecc71; }
+      .class-card.summoner:hover { border-color: rgba(46,204,113,0.5); box-shadow: 0 8px 30px rgba(46,204,113,0.2), inset 0 1px 0 rgba(46,204,113,0.15); }
+
+      .class-card.chaos    { --card-glow: rgba(187,107,217,0.15); }
+      .class-card.chaos    .role { color: #bb6bd9; }
+      .class-card.chaos:hover    { border-color: rgba(187,107,217,0.5); box-shadow: 0 8px 30px rgba(187,107,217,0.2), inset 0 1px 0 rgba(187,107,217,0.15); }
+
+      .class-card.engineer { --card-glow: rgba(243,156,18,0.15); }
+      .class-card.engineer .role { color: #f39c12; }
+      .class-card.engineer:hover { border-color: rgba(243,156,18,0.5); box-shadow: 0 8px 30px rgba(243,156,18,0.2), inset 0 1px 0 rgba(243,156,18,0.15); }
+
+      .class-card.paladin  { --card-glow: rgba(26,188,156,0.15); }
+      .class-card.paladin  .role { color: #1abc9c; }
+      .class-card.paladin:hover  { border-color: rgba(26,188,156,0.5); box-shadow: 0 8px 30px rgba(26,188,156,0.2), inset 0 1px 0 rgba(26,188,156,0.15); }
+
+      .class-card.necromancer { --card-glow: rgba(39,174,96,0.15); }
+      .class-card.necromancer .role { color: #27ae60; }
+      .class-card.necromancer:hover { border-color: rgba(39,174,96,0.5); box-shadow: 0 8px 30px rgba(39,174,96,0.2), inset 0 1px 0 rgba(39,174,96,0.15); }
+
+      /* ── SELECTED CARD STATE ── */
+      .class-card.selected {
+        border-color: var(--card-sel, #e74c3c) !important;
+        box-shadow: 0 0 25px var(--card-sel-glow, rgba(231,76,60,0.4)), inset 0 0 30px var(--card-sel-glow, rgba(231,76,60,0.08)) !important;
+        transform: translateY(-4px);
+      }
+      .class-card.selected::after {
+        content: 'SELECTED'; position: absolute; bottom: 0; left: 0; right: 0;
+        font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 9px;
+        letter-spacing: 0.18em; text-align: center; padding: 3px 0;
+        background: var(--card-sel, #e74c3c); color: #000;
+      }
+      .class-card.warrior.selected  { --card-sel: #e74c3c; --card-sel-glow: rgba(231,76,60,0.4); }
+      .class-card.archer.selected   { --card-sel: #3498db; --card-sel-glow: rgba(52,152,219,0.4); }
+      .class-card.mage.selected     { --card-sel: #9b59b6; --card-sel-glow: rgba(155,89,182,0.4); }
+      .class-card.priest.selected   { --card-sel: #f1c40f; --card-sel-glow: rgba(241,196,15,0.4); }
+      .class-card.assassin.selected { --card-sel: #bdc3c7; --card-sel-glow: rgba(189,195,199,0.35); }
+      .class-card.summoner.selected { --card-sel: #2ecc71; --card-sel-glow: rgba(46,204,113,0.4); }
+      .class-card.chaos.selected    { --card-sel: #bb6bd9; --card-sel-glow: rgba(187,107,217,0.4); }
+      .class-card.engineer.selected { --card-sel: #f39c12; --card-sel-glow: rgba(243,156,18,0.4); }
+      .class-card.paladin.selected  { --card-sel: #1abc9c; --card-sel-glow: rgba(26,188,156,0.4); }
+      .class-card.necromancer.selected { --card-sel: #27ae60; --card-sel-glow: rgba(39,174,96,0.4); }
+
+      /* ── ENTER ARENA BUTTON ── */
+      #enter-arena-btn {
+        font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 22px;
+        letter-spacing: 0.16em; text-transform: uppercase;
+        color: #fff; background: linear-gradient(135deg, #c0392b 0%, #e74c3c 50%, #c0392b 100%);
+        border: 2px solid rgba(255,255,255,0.15); border-radius: 4px;
+        padding: 14px 56px; cursor: pointer; margin-top: 28px;
+        transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+        box-shadow: 0 4px 20px rgba(231,76,60,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+        animation: arenaButtonPulse 2.5s ease-in-out infinite;
+      }
+      #enter-arena-btn:hover {
+        transform: translateY(-2px); background: linear-gradient(135deg, #e74c3c 0%, #ff6348 50%, #e74c3c 100%);
+        box-shadow: 0 8px 30px rgba(231,76,60,0.5), inset 0 1px 0 rgba(255,255,255,0.2);
+      }
+      #enter-arena-btn:active { transform: translateY(1px); box-shadow: 0 2px 10px rgba(231,76,60,0.3); }
+      #enter-arena-btn:disabled {
+        background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.06);
+        color: rgba(255,255,255,0.2); cursor: not-allowed;
+        box-shadow: none; animation: none;
+      }
+      @keyframes arenaButtonPulse {
+        0%, 100% { box-shadow: 0 4px 20px rgba(231,76,60,0.3), inset 0 1px 0 rgba(255,255,255,0.15); }
+        50% { box-shadow: 0 4px 35px rgba(231,76,60,0.5), 0 0 60px rgba(231,76,60,0.12), inset 0 1px 0 rgba(255,255,255,0.15); }
+      }
+
+      /* ── BASE HEALTH UI ── */
+      #hud-bases { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 12; pointer-events: none; display: flex; gap: 20px; opacity: 0; transition: opacity 0.4s ease; }
+      #hud-bases.visible { opacity: 1; }
+      .base-hp-card { width: 180px; background: rgba(10,10,18,0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 10px 14px; }
+      .base-hp-card .base-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+      .base-hp-card.red .base-label { color: #ff6b6b; } .base-hp-card.blue .base-label { color: #74b9ff; }
+      .base-hp-card .base-track { width: 100%; height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+      .base-hp-card .base-fill { height: 100%; border-radius: 4px; transition: width 0.2s ease; }
+      .base-hp-card.red .base-fill { background: linear-gradient(90deg, #c0392b, #ff6b6b); box-shadow: 0 0 6px rgba(231,76,60,0.5); }
+      .base-hp-card.blue .base-fill { background: linear-gradient(90deg, #2980b9, #74b9ff); box-shadow: 0 0 6px rgba(52,152,219,0.5); }
+
+      /* ── BOSS HEALTH UI ── */
+      #hud-boss { position: fixed; top: 105px; left: 50%; transform: translateX(-50%); z-index: 12; pointer-events: none; display: none; opacity: 0; transition: opacity 0.4s ease, display 0.4s ease; }
+      #hud-boss.visible { display: block; opacity: 1; }
+      #hud-boss .boss-label { font-size: 14px; font-weight: 700; letter-spacing: 0.08em; margin-bottom: 6px; text-align: center; color: #bb6bd9; }
+      #hud-boss .boss-track { width: 400px; height: 24px; background: rgba(255,255,255,0.08); border: 2px solid rgba(187,107,217,0.4); border-radius: 8px; overflow: hidden; box-shadow: 0 0 10px rgba(187,107,217,0.2) inset; }
+      #hud-boss .boss-fill { height: 100%; background: linear-gradient(90deg, #9933ff, #cc66ff); box-shadow: 0 0 12px rgba(187,107,217,0.8); transition: width 0.15s ease; position: relative; }
+      #hud-boss .boss-fill::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 50%; background: linear-gradient(180deg, rgba(255,255,255,0.3) 0%, transparent 100%); }
+
+      /* ── ANNOUNCEMENT ── */
+      #announcement-container { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 150; pointer-events: none; }
+      .announcement { font-size: 48px; font-weight: 900; letter-spacing: 0.08em; text-align: center; color: #bb6bd9; text-shadow: 0 0 40px rgba(187,107,217,1), 0 4px 16px rgba(0,0,0,0.8); animation: announcementFade 4s ease-in-out forwards; }
+      @keyframes announcementFade { 0% { opacity: 0; transform: scale(0.8); } 20% { opacity: 1; transform: scale(1); } 80% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(0.8); } }
+
+      /* ── LEADERBOARD ── */
+      #hud-leaderboard {
+        position: fixed; top: 16px; right: 16px; z-index: 10;
+        background: rgba(10,10,18,0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 12px 16px;
+        width: 220px; opacity: 0; transition: opacity 0.4s ease; pointer-events: none;
+      }
+      #hud-leaderboard.visible { opacity: 1; }
+      #hud-leaderboard .title { color: #fff; font-weight: 700; font-size: 14px; margin-bottom: 12px; text-align: center; letter-spacing: 0.08em; }
+      #leaderboard-list { margin: 0; padding-left: 20px; font-size: 12px; color: rgba(255,255,255,0.8); line-height: 1.6; }
+      #leaderboard-list li { margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      /* ── FLOATING NAMETAGS, DAMAGE TEXT, & SOCIAL ── */
+      #nametags-container, #damage-container, #social-container { position: absolute; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
+      #damage-container { z-index: 20; }
+      #social-container { z-index: 15; }
+      
+      .nametag { 
+        position: absolute; font-size: 12px; font-weight: 700; color: #fff; 
+        text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 0 2px #000; 
+        transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.15s; letter-spacing: 0.03em;
+      }
+      
+      .dmg-text {
+        position: absolute; font-size: 28px; font-weight: 900; font-style: italic; font-family: 'Impact', 'Bangers', sans-serif;
+        text-transform: uppercase; color: #ffe75c;
+        -webkit-text-stroke: 2px #000;
+        text-shadow: 0 0 2px #000, 0 2px 8px rgba(0,0,0,0.95), 0 0 16px rgba(255,255,255,0.25)
+        -webkit-text-stroke: 2px #000;
+        text-shadow: 0 0 2px #000, 0 2px 8px rgba(0,0,0,0.95), 0 0 16px rgba(255,255,255,0.25);
+        transform: translate(-50%, -50%); transition: top 0.8s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.8s ease-in; pointer-events: none;
+      }
+
+      /* ── SOCIAL ── */
+      #chat-input {
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100;
+        width: 400px; padding: 12px 20px; font-size: 14px; border-radius: 20px;
+        border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.6); color: #fff;
+        outline: none; font-family: 'Inter', sans-serif; transition: opacity 0.2s, visibility 0.2s;
+        opacity: 0; visibility: hidden; pointer-events: none; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      }
+      #chat-input.active { opacity: 1; visibility: visible; pointer-events: auto; }
+      
+      .social-bubble {
+        position: absolute; font-family: 'Inter', sans-serif;
+        transform: translate(-50%, -100%); transition: opacity 0.3s;
+        pointer-events: none; white-space: nowrap;
+      }
+      .social-chat {
+        background: #fff; color: #000; padding: 6px 12px; border-radius: 12px;
+        font-size: 12px; font-weight: 600; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+        border-bottom-left-radius: 4px;
+      }
+      .social-chat::after {
+        content: ''; position: absolute; bottom: -4px; left: 10px;
+        border-width: 4px 4px 0 0; border-style: solid; border-color: #fff transparent transparent transparent;
+      }
+      .social-emote { font-size: 32px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4)); }
+
+      /* ── ULTIMATE HUD ── */
+      #hud-ultimate {
+        position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 10;
+        width: 300px; height: 40px; border: 2px solid rgba(255,255,255,0.3); border-radius: 6px;
+        background: rgba(0,0,0,0.6); overflow: hidden; display: none;
+      }
+      #hud-ultimate.visible { display: block; }
+      #hud-ultimate.ready { border-color: #f1c40f; box-shadow: 0 0 15px rgba(241,196,15,0.6); overflow: visible; }
+      #hud-ultimate .ult-text {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        font-size: 14px; font-weight: 800; color: #fff; letter-spacing: 0.1em; z-index: 2; pointer-events: none;
+      }
+      #hud-ultimate.ready .ult-text { color: #f1c40f; text-shadow: 0 0 5px rgba(0,0,0,0.8); }
+      #hud-ultimate .ult-fill {
+        height: 100%; width: 100%; background: #f1c40f; opacity: 0.4; transform-origin: left; transition: transform 0.1s linear;
+      }
+
+      /* ── GAME OVER ── */
+      #game-over { position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(4,4,10,0.92); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.6s ease, visibility 0.6s ease; }
+      #game-over.visible { opacity: 1; visibility: visible; pointer-events: auto; }
+      #game-over .go-title { font-size: 56px; font-weight: 800; letter-spacing: 0.08em; margin-bottom: 12px; text-shadow: 0 0 60px currentColor, 0 4px 12px rgba(0,0,0,0.8); }
+      #game-over .go-subtitle { font-size: 16px; color: rgba(255,255,255,0.4); letter-spacing: 0.06em; }
+
+      /* ── ENDGAME SCOREBOARD ── */
+      #endgame-screen { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.92); display: none; flex-direction: column; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; overflow-y: auto; padding: 20px; }
+      #endgame-screen.visible { display: flex; opacity: 1; pointer-events: auto; }
+      
+      #endgame-container { max-width: 900px; width: 100%; }
+      
+      #victory-text { 
+        font-size: 72px; font-weight: 900; letter-spacing: 0.12em; text-align: center; margin-bottom: 24px;
+        transform: skewX(-10deg); 
+        text-shadow: 0 0 40px currentColor, 0 8px 20px rgba(0,0,0,0.9);
+        -webkit-text-stroke: 3px #000;
+        animation: victoryPulse 0.6s ease-out;
+      }
+      #victory-text.victory { color: #4ade80; }
+      #victory-text.defeat { color: #ff4444; }
+      
+      @keyframes victoryPulse { 0% { transform: skewX(-10deg) scale(0.8); opacity: 0; } 100% { transform: skewX(-10deg) scale(1); opacity: 1; } }
+      
+      #endgame-scoreboard {
+        background: rgba(20, 20, 30, 0.85); border: 4px solid #000; border-radius: 8px; padding: 0; overflow: hidden; box-shadow: 0 8px 20px rgba(0,0,0,0.7);
+      }
+      
+      .scoreboard-header {
+        display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr 1.5fr 1.5fr; gap: 0; padding: 16px 12px;
+        background: linear-gradient(90deg, rgba(100,50,150,0.3) 0%, rgba(50,100,200,0.3) 100%);
+        border-bottom: 3px solid #000; font-weight: 800; font-size: 13px; letter-spacing: 0.05em;
+        text-transform: uppercase; color: #fff;
+      }
+      
+      #endgame-scoreboard-body { }
+      
+      .scoreboard-row {
+        display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr 1.5fr 1.5fr; gap: 0; padding: 12px; align-items: center;
+        border-bottom: 2px solid rgba(0,0,0,0.5); font-size: 13px; color: rgba(255,255,255,0.9);
+        background: repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(255,255,255,0.01) 2px, rgba(255,255,255,0.01) 4px);
+      }
+      
+      .scoreboard-row:nth-child(even) { background-color: rgba(100, 100, 150, 0.08); background-image: repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(255,255,255,0.02) 2px, rgba(255,255,255,0.02) 4px); }
+      .scoreboard-row:first-child { background-color: rgba(100, 150, 100, 0.1); font-weight: 700; }
+      
+      .sb-col { padding: 0 8px; }
+      .sb-name { font-weight: 600; }
+      .sb-class { font-size: 12px; opacity: 0.8; text-transform: capitalize; }
+      .sb-kills { text-align: center; color: #ff6b6b; font-weight: 600; }
+      .sb-deaths { text-align: center; color: #7b7b7b; }
+      .sb-botkills { text-align: center; color: #f1c40f; }
+      .sb-damage { text-align: right; color: #74b9ff; font-weight: 600; }
+      
+      #endgame-countdown {
+        text-align: center; margin-top: 20px; font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.6); letter-spacing: 0.04em;
+        animation: countdownFlash 1s infinite;
+      }
+      
+      @keyframes countdownFlash { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.4; } }
+
+      /* ── STATS HUD ── */
+      #hud-stats { position: fixed; bottom: 20px; left: 20px; z-index: 10; pointer-events: none; width: 220px; opacity: 0; transition: opacity 0.4s ease; }
+      #hud-stats.visible { opacity: 1; }
+      #hud-stats .panel { background: rgba(10,10,18,0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px 16px; }
+      #hud-stats .title { font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.9); letter-spacing: 0.06em; margin-bottom: 8px; }
+      #hud-stats .stat-row { display: flex; justify-content: space-between; font-size: 12px; color: rgba(255,255,255,0.5); margin-bottom: 4px; }
+      #hud-stats .stat-row .value { color: rgba(255,255,255,0.8); font-weight: 600; }
+      .bar-container { margin-top: 8px; }
+      .bar-label { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.55); margin-bottom: 3px; display: flex; justify-content: space-between; }
+      .bar-track { width: 100%; height: 10px; background: rgba(255,255,255,0.06); border-radius: 5px; overflow: hidden; position: relative; }
+      .bar-fill { height: 100%; border-radius: 5px; transition: width 0.15s ease; position: relative; }
+      .bar-fill::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 50%; background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%); border-radius: 5px 5px 0 0; }
+      .bar-fill.health { background: linear-gradient(90deg, #e74c3c, #ff6b6b); box-shadow: 0 0 8px rgba(231,76,60,0.4); }
+      .bar-fill.mana   { background: linear-gradient(90deg, #3498db, #74b9ff); box-shadow: 0 0 8px rgba(52,152,219,0.4); }
+      .bar-fill.exp    { background: linear-gradient(90deg, #f39c12, #fdcb6e); box-shadow: 0 0 8px rgba(243,156,18,0.4); }
+
+      /* ── MINIMAP (bottom-right) ── */
+      #minimap-container { position: fixed; bottom: 20px; right: 20px; z-index: 10; width: 200px; height: 200px; border-radius: 50%; pointer-events: none; opacity: 0; transition: opacity 0.4s ease; display: flex; align-items: center; justify-content: center; }
+      #minimap-container.visible { opacity: 1; }
+      #minimap { background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.08) 0%, transparent 22%), radial-gradient(circle at 70% 70%, rgba(255,255,255,0.06) 0%, transparent 18%), rgba(0, 0, 0, 0.55); border-radius: 50%; border: 4px solid #000; box-shadow: 4px 4px 0px rgba(0,0,0,0.45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+
+      /* ── CROSSHAIR ── */
+      #crosshair { position: fixed; top: 50%; left: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; pointer-events: none; z-index: 11; opacity: 0; transition: opacity 0.4s ease; }
+      #crosshair.visible { opacity: 0.35; }
+      #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; border-radius: 1px; }
+      #crosshair::before { width: 2px; height: 20px; left: 9px; top: 0; }
+      #crosshair::after  { width: 20px; height: 2px; top: 9px; left: 0; }
+
+      /* FPS COUNTER */
+      #fps-counter {
+        position: fixed; top: 8px; left: 8px; z-index: 10;
+        font-family: 'Oswald', 'Inter', monospace; font-weight: 600; font-size: 13px;
+        color: #4ade80; letter-spacing: 0.04em;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        pointer-events: none; opacity: 0; transition: opacity 0.3s ease;
+      }
+      #fps-counter.visible { opacity: 1; }
+
+      /* HOW TO PLAY */
+      #help-button {
+        position: relative;
+        display: inline-block;
+        margin-top: 14px;
+        padding: 8px 24px;
+        border-radius: 4px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: rgba(255,255,255,0.4);
+        font-family: 'Oswald', sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        cursor: pointer;
+        transition: color 0.2s, border-color 0.2s, background 0.2s;
+      }
+      #help-button:hover {
+        color: rgba(255,255,255,0.8);
+        border-color: rgba(255,255,255,0.25);
+        background: rgba(255,255,255,0.08);
+      }
+      #howto-modal {
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 101;
+        background: rgba(0,0,0,0.9);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        max-width: 600px;
+        max-height: 80vh;
+        overflow-y: auto;
+        border: 1px solid rgba(255,255,255,0.18);
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        pointer-events: auto;
+      }
+      #howto-modal h2 { margin-bottom: 12px; font-size: 28px; letter-spacing: 0.04em; }
+      #howto-modal h3 { margin-top: 14px; margin-bottom: 8px; font-size: 16px; color: #9de6ff; }
+      #howto-modal p, #howto-modal li { font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.9); }
+      #howto-modal ul { margin-left: 18px; }
+      #howto-close {
+        margin-top: 16px;
+        width: 100%;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-weight: bold;
+        cursor: pointer;
+        background: #2ecc71;
+        color: #062110;
+      }
+
+      /* SKILL CARDS */
+      #skill-card-overlay {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 200;
+        display: none;
+        pointer-events: auto;
+      }
+      #skill-card-overlay.visible { display: block; }
+      #skill-card-wrap {
+        display: flex;
+        gap: 15px;
+        align-items: flex-end;
+        justify-content: center;
+      }
+      .skill-card-option {
+        position: relative;
+        width: 200px;
+        min-height: 132px;
+        background: rgba(20, 20, 20, 0.8);
+        border: 2px solid #555;
+        border-radius: 8px;
+        padding: 10px;
+        color: #fff;
+        pointer-events: auto;
+        cursor: pointer;
+        transition: transform 0.1s, border-color 0.1s;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        text-align: left;
+      }
+      .skill-card-option:hover {
+        transform: translateY(-3px);
+        border-color: #7fa7ff;
+      }
+      .skill-card-hotkey {
+        position: absolute;
+        top: 6px;
+        right: 8px;
+        color: #ffe66a;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+      }
+      .skill-card-emoji {
+        font-size: 28px;
+        line-height: 1;
+      }
+      .skill-card-title {
+        color: #eef6ff;
+        font-size: 14px;
+        font-weight: 800;
+        line-height: 1.2;
+      }
+      .skill-card-level {
+        color: #9ed0ff;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .skill-card-desc {
+        color: rgba(234, 242, 255, 0.9);
+        font-size: 11px;
+        line-height: 1.3;
+      }
+      @media (max-width: 760px) {
+        #skill-card-wrap {
+          flex-direction: column;
+          align-items: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- OVERLAYS -->
+    <div id="nametags-container"></div>
+    <div id="damage-container"></div>
+    <div id="social-container"></div>
+    <input id="chat-input" type="text" placeholder="Press Enter to chat..." autocomplete="off" />
+
+    <div id="fps-counter">0 FPS</div>
+    <div id="howto-modal">
+      <h2>How to Play</h2>
+      <h3>Controls</h3>
+      <ul>
+        <li>WASD to move</li>
+        <li>Mouse to aim and click to attack</li>
+        <li>SPACEBAR for Ultimate</li>
+        <li>Shift+1 / Shift+2 / Shift+3 for Emotes</li>
+        <li>Enter to Chat</li>
+      </ul>
+      <h3>Objective</h3>
+      <p>Destroy the enemy base, eat orbs to level up, and upgrade stats!</p>
+      <h3>The Roster</h3>
+      <ul>
+        <li>Warrior (150 HP): AoE Stun</li>
+        <li>Archer (80 HP): Piercing Laser</li>
+        <li>Mage (90 HP): Black Hole Pull</li>
+        <li>Priest (120 HP): AoE Burst Heal</li>
+        <li>Assassin (70 HP): Teleport to Enemy</li>
+        <li>Summoner (100 HP): Spawn AI Minions</li>
+        <li>Chaos Witch (90 HP): Reverse Enemy Controls</li>
+        <li>Engineer (120 HP): Deploy Auto-Turret</li>
+      </ul>
+      <button id="howto-close" type="button">Close</button>
+    </div>
+
+    <!-- LOBBY -->
+    <div id="lobby">
+      <div class="lobby-title">ARENA.IO</div>
+      <div class="lobby-subtitle">BATTLE FOR GLORY</div>
+      
+      <input id="lobby-username" type="text" placeholder="Enter Username (required)" maxlength="16" autocomplete="off" />
+
+      <div class="class-cards">
+        <div class="class-card warrior" id="btn-warrior">
+          <span class="hp-badge">160 HP</span>
+          <div class="icon">⚔️</div>
+          <div class="name">Warrior</div>
+          <div class="role">Melee Tank</div>
+          <div class="desc">Slow &amp; tanky frontliner<br>Devastating cleave attack<br>Ult: AoE Stun</div>
+        </div>
+        <div class="class-card archer" id="btn-archer">
+          <span class="hp-badge">85 HP</span>
+          <div class="icon">🏹</div>
+          <div class="name">Archer</div>
+          <div class="role">Fast Ranged</div>
+          <div class="desc">Fast &amp; agile marksman<br>Rapid arrow shots<br>Ult: Piercing Laser</div>
+        </div>
+        <div class="class-card mage" id="btn-mage">
+          <span class="hp-badge">90 HP</span>
+          <div class="icon">🔮</div>
+          <div class="name">Mage</div>
+          <div class="role">Heavy Ranged</div>
+          <div class="desc">Slow but devastating<br>Heavy arcane bolts<br>Ult: Black Hole</div>
+        </div>
+        <div class="class-card priest" id="btn-priest">
+          <span class="hp-badge">110 HP</span>
+          <div class="icon">✨</div>
+          <div class="name">Priest</div>
+          <div class="role">Ranged Support</div>
+          <div class="desc">Fast &amp; light healer<br>Rapid healing orbs<br>Ult: AoE Burst Heal</div>
+        </div>
+        <div class="class-card assassin" id="btn-assassin">
+          <span class="hp-badge">75 HP</span>
+          <div class="icon">🗡️</div>
+          <div class="name">Assassin</div>
+          <div class="role">Melee Flanker</div>
+          <div class="desc">Fast close-range killer<br>Deadly blade strikes<br>Ult: Teleport + Speed</div>
+        </div>
+        <div class="class-card summoner" id="btn-summoner">
+          <span class="hp-badge">95 HP</span>
+          <div class="icon">👁️</div>
+          <div class="name">Summoner</div>
+          <div class="role">Ranged Pet Master</div>
+          <div class="desc">Homing projectiles<br>Overwhelm with numbers<br>Ult: Summon 3 Pets</div>
+        </div>
+        <div class="class-card chaos" id="btn-chaos">
+          <span class="hp-badge">90 HP</span>
+          <div class="icon">🌀</div>
+          <div class="name">Chaos Witch</div>
+          <div class="role">Ranged Disruptor</div>
+          <div class="desc">Inverts enemy controls<br>Hex projectiles<br>Ult: Area Distortion</div>
+        </div>
+        <div class="class-card engineer" id="btn-engineer">
+          <span class="hp-badge">110 HP</span>
+          <div class="icon">⚙️</div>
+          <div class="name">Engineer</div>
+          <div class="role">Ranged Zone Control</div>
+          <div class="desc">Zone-control specialist<br>Plants mine traps<br>Ult: Deploy Turret</div>
+        </div>
+        <div class="class-card paladin" id="btn-paladin">
+          <span class="hp-badge">140 HP</span>
+          <div class="icon">🛡️</div>
+          <div class="name">Paladin</div>
+          <div class="role">Melee Guardian</div>
+          <div class="desc">Tanky divine protector<br>Holy melee strikes<br>Ult: Divine Shield</div>
+        </div>
+        <div class="class-card necromancer" id="btn-necromancer">
+          <span class="hp-badge">80 HP</span>
+          <div class="icon">💀</div>
+          <div class="name">Necromancer</div>
+          <div class="role">Ranged Drainer</div>
+          <div class="desc">Dark curse projectiles<br>Steals life from foes<br>Ult: Soul Drain</div>
+        </div>
+      </div>
+
+      <button id="enter-arena-btn" disabled>SELECT A CLASS</button>
+      <button id="help-button" type="button">? HOW TO PLAY</button>
+    </div>
+
+    <!-- GAME OVER -->
+    <div id="game-over">
+      <div class="go-title" id="go-title">GAME OVER</div>
+      <div class="go-subtitle" id="go-subtitle">A base has been destroyed!</div>
+    </div>
+
+    <!-- ENDGAME SCOREBOARD -->
+    <div id="endgame-screen">
+      <div id="endgame-container">
+        <h1 id="victory-text">VICTORY!</h1>
+        <div id="endgame-scoreboard">
+          <div class="scoreboard-header">
+            <div class="sb-col sb-name">Player</div>
+            <div class="sb-col sb-class">Class</div>
+            <div class="sb-col sb-kills">Kills</div>
+            <div class="sb-col sb-deaths">Deaths</div>
+            <div class="sb-col sb-botkills">Bot Kills</div>
+            <div class="sb-col sb-damage">Damage</div>
+          </div>
+          <div id="endgame-scoreboard-body"></div>
+        </div>
+        <div id="endgame-countdown">Restarting in <span id="countdown-timer">15</span>s...</div>
+      </div>
+    </div>
+
+    <!-- UI ELEMENTS -->
+    <div id="crosshair"></div>
+
+    <!-- BASE HEALTH -->
+    <div id="hud-bases">
+      <div class="base-hp-card red">
+        <div class="base-label"><span>🔴 RED BASE</span><span id="hud-base-red-text">2000</span></div>
+        <div class="base-track"><div class="base-fill" id="hud-base-red-bar" style="width:100%"></div></div>
+      </div>
+      <div class="base-hp-card blue">
+        <div class="base-label"><span>🔵 BLUE BASE</span><span id="hud-base-blue-text">2000</span></div>
+        <div class="base-track"><div class="base-fill" id="hud-base-blue-bar" style="width:100%"></div></div>
+      </div>
+    </div>
+
+    <!-- LEVIATHAN BOSS -->
+    <div id="hud-boss">
+      <div class="boss-label">👹 LEVIATHAN</div>
+      <div class="boss-track"><div class="boss-fill" id="hud-boss-bar" style="width:100%"></div></div>
+      <div style="text-align: center; font-size: 11px; color: rgba(187,107,217,0.7); margin-top: 4px;" id="hud-boss-text">5000 / 5000</div>
+    </div>
+
+    <!-- LEADERBOARD -->
+    <div id="hud-leaderboard">
+      <div class="title">🏆 LEADERBOARD</div>
+      <ol id="leaderboard-list"></ol>
+    </div>
+
+    <!-- ULTIMATE HUD -->
+    <div id="hud-ultimate">
+      <div class="ult-text">SPACEBAR - ULTIMATE</div>
+      <div class="ult-fill" id="hud-ultimate-fill"></div>
+    </div>
+
+    <!-- STATS HUD -->
+    <div id="hud-stats">
+      <div class="panel">
+        <div class="title" id="hud-username-header">ARENA.IO</div>
+        <div class="stat-row"><span>Team</span><span class="value" id="hud-team">—</span></div>
+        <div class="stat-row"><span>Class</span><span class="value" id="hud-class">—</span></div>
+        <div class="stat-row"><span>Level</span><span class="value" id="hud-level">1</span></div>
+        <div class="stat-row"><span>Players</span><span class="value" id="hud-players">0</span></div>
+        <div class="bar-container"><div class="bar-label"><span>HP</span><span id="hud-hp-text">100 / 100</span></div><div class="bar-track"><div class="bar-fill health" id="hud-hp-bar" style="width:100%"></div></div></div>
+        <div class="bar-container"><div class="bar-label"><span>EXP</span><span id="hud-exp-text">0 / 100</span></div><div class="bar-track"><div class="bar-fill exp" id="hud-exp-bar" style="width:0%"></div></div></div>
+      </div>
+    </div>
+
+    <!-- SKILL CARD OVERLAY -->
+    <div id="skill-card-overlay">
+      <div id="skill-card-wrap">
+        <button class="skill-card-option" id="skill-card-0" type="button" tabindex="-1">
+          <span class="skill-card-hotkey" data-role="hotkey">[1]</span>
+          <div class="skill-card-emoji" data-role="emoji">âœ¨</div>
+          <div class="skill-card-title" data-role="name">Skill</div>
+          <div class="skill-card-level" data-role="level">Level 0 -&gt; 1</div>
+          <div class="skill-card-desc" data-role="desc">Description</div>
+        </button>
+        <button class="skill-card-option" id="skill-card-1" type="button" tabindex="-1">
+          <span class="skill-card-hotkey" data-role="hotkey">[2]</span>
+          <div class="skill-card-emoji" data-role="emoji">âœ¨</div>
+          <div class="skill-card-title" data-role="name">Skill</div>
+          <div class="skill-card-level" data-role="level">Level 0 -&gt; 1</div>
+          <div class="skill-card-desc" data-role="desc">Description</div>
+        </button>
+        <button class="skill-card-option" id="skill-card-2" type="button" tabindex="-1">
+          <span class="skill-card-hotkey" data-role="hotkey">[3]</span>
+          <div class="skill-card-emoji" data-role="emoji">âœ¨</div>
+          <div class="skill-card-title" data-role="name">Skill</div>
+          <div class="skill-card-level" data-role="level">Level 0 -&gt; 1</div>
+          <div class="skill-card-desc" data-role="desc">Description</div>
+        </button>
+      </div>
+    </div>
+
+    <!-- MINIMAP -->
+    <div id="minimap-container">
+      <canvas id="minimap" width="200" height="200"></canvas>
+    </div>
+
+    <!-- ANNOUNCEMENT -->
+    <div id="announcement-container"></div>
+
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

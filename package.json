@@ -1,0 +1,32 @@
+{
+  "name": "arena-io",
+  "version": "1.0.0",
+  "description": "Multiplayer browser game with 10 playable classes, ultimate abilities, and dynamic skill system",
+  "main": "server/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm start\"",
+    "build:all": "cd client && npm install && npm run build",
+    "start": "npm run build:all && node server/server.js",
+    "postinstall": "cd server && npm install"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": "18.x || 20.x"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/arena-io.git"
+  },
+  "keywords": [
+    "game",
+    "multiplayer",
+    "socket.io",
+    "three.js",
+    "arena"
+  ],
+  "author": "",
+  "license": "ISC"
+}

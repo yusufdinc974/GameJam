@@ -14,7 +14,6 @@ let modelLoadPromise = null;
 const MODEL_SCALE = 1.0;
 const MODEL_Y_OFFSET = 0.0;
 const ATTACK_ANIM_DURATION = 0.6;
-const EMOTE_ANIM_DURATION_MS = 1000;
 
 const ANIM_NAME_MAP = {
   'Idle': ['Idle', 'idle', 'IDLE', 'Rest', 'Standing'],
@@ -58,8 +57,7 @@ function preloadCharacterModel() {
 }
 
 // ── Config ──────────────────────────────────────────────────────────────────
-// Auto-detect server URL based on current location
-const SERVER_URL = window.location.origin;
+const SERVER_URL = 'http://localhost:3000';
 const LERP_FACTOR = 0.15;
 const FLOOR_SIZE = 400;
 const GRID_DIVISIONS = 80;
@@ -72,170 +70,6 @@ let inLobby = true;
 let isGameOver = false;
 let gameOverData = null;
 let selectedCharacter = null;
-
-// ── Client-Side Class Data (mirrors server CLASS_DEFS + CLASS_SKILLS) ──────
-const CLIENT_CLASS_DATA = {
-  warrior: {
-    name: 'Warrior', emoji: '⚔️', role: 'Melee Tank', color: '#e74c3c', shape: 'cube',
-    stats: { hp: 160, damage: 22, speed: 0.85, cooldown: 550, attackType: 'melee', damageMultiplier: 1.0 },
-    ultimate: { name: 'Earthquake', emoji: '🌋', description: 'Slams the ground, stunning all enemies in a massive area.' },
-    skills: [
-      { name: 'Fortified Body', emoji: '🛡️', description: 'Reinforced constitution increases max HP.', stat: '+15 HP' },
-      { name: 'Widening Cleave', emoji: '🪓', description: 'Broadens melee arc for wider strikes.', stat: '+15° Arc' },
-      { name: 'Ground Slam', emoji: '💥', description: 'Attacks briefly stun nearby enemies.', stat: '+0.1s Stun' },
-      { name: 'War Cry', emoji: '📣', description: 'Battle fury amplifies all damage dealt.', stat: '+8% Dmg' },
-      { name: 'Berserker Rage', emoji: '🔥', description: 'Below 40% HP, gain bonus attack speed.', stat: '+15% AS' },
-      { name: 'Titan Grip', emoji: '✊', description: 'Extends weapon reach for longer strikes.', stat: '+0.5 Range' },
-      { name: 'Shield Wall', emoji: '🏰', description: 'Hardened armor reduces incoming damage.', stat: '-5% Dmg Taken' },
-    ],
-  },
-  archer: {
-    name: 'Archer', emoji: '🏹', role: 'Fast Ranged', color: '#3498db', shape: 'pyramid',
-    stats: { hp: 85, damage: 12, speed: 1.2, cooldown: 280, attackType: 'ranged', damageMultiplier: 1.0 },
-    ultimate: { name: 'Piercing Laser', emoji: '⚡', description: 'Fires a devastating laser that pierces through all enemies in a line.' },
-    skills: [
-      { name: 'Multi Shot', emoji: '🏹', description: 'Fire additional arrows in a spread pattern.', stat: '+1 Arrow' },
-      { name: 'Rapid Fire', emoji: '⚡', description: 'Decreases delay between arrow volleys.', stat: '-25ms CD' },
-      { name: 'Long Range', emoji: '🎯', description: 'Arrows travel further before fading.', stat: '+20% Range' },
-      { name: 'Poison Arrow', emoji: '☠️', description: 'Arrows apply damage over time on hit.', stat: '+2 DPS' },
-      { name: 'Evasion', emoji: '💨', description: 'Nimble footwork grants movement speed.', stat: '+4% Speed' },
-      { name: 'Headshot', emoji: '🦅', description: 'Precise aim increases base arrow damage.', stat: '+3 Dmg' },
-      { name: 'Piercing Arrow', emoji: '🔱', description: 'Arrows pass through enemies on hit.', stat: '+1 Pierce' },
-    ],
-  },
-  mage: {
-    name: 'Mage', emoji: '🔮', role: 'Heavy Ranged', color: '#9b59b6', shape: 'icosahedron',
-    stats: { hp: 90, damage: 18, speed: 0.9, cooldown: 750, attackType: 'ranged', damageMultiplier: 1.4 },
-    ultimate: { name: 'Black Hole', emoji: '🕳️', description: 'Creates a singularity that pulls all nearby enemies inward.' },
-    skills: [
-      { name: 'Arcane Blast', emoji: '✨', description: 'Amplified arcane energy increases damage.', stat: '+3 Dmg' },
-      { name: 'Spell Speed', emoji: '⚡', description: 'Faster incantations reduce cast delay.', stat: '-30ms CD' },
-      { name: 'Singularity', emoji: '🕳️', description: 'Black hole ultimate grows in radius.', stat: '+10% Radius' },
-      { name: 'Chain Lightning', emoji: '⛓️', description: 'Spells damage nearby enemies on impact.', stat: '+0.5 Splash' },
-      { name: 'Mana Shield', emoji: '🔮', description: 'Arcane barrier increases max health.', stat: '+12 HP' },
-      { name: 'Spell Penetration', emoji: '🌌', description: 'Spells bypass enemy resistances.', stat: '+8% Dmg' },
-      { name: 'Comet Trail', emoji: '☄️', description: 'Projectiles leave damaging zones behind.', stat: '+0.2s Trail' },
-    ],
-  },
-  priest: {
-    name: 'Priest', emoji: '✨', role: 'Ranged Support', color: '#f1c40f', shape: 'torus',
-    stats: { hp: 110, damage: 10, speed: 1.05, cooldown: 400, attackType: 'ranged', damageMultiplier: 0.6 },
-    ultimate: { name: 'AoE Burst Heal', emoji: '🙏', description: 'Releases a massive wave of healing energy to all nearby allies.' },
-    skills: [
-      { name: 'Healing Aura', emoji: '💚', description: 'Passively heal nearby allies over time.', stat: '+2 HP/s' },
-      { name: 'Blessed Speed', emoji: '🕊️', description: 'Divine wind quickens your movement.', stat: '+4% Speed' },
-      { name: 'Holy Shield', emoji: '🛡️', description: 'Sacred protection raises max health.', stat: '+15 HP' },
-      { name: 'Divine Smite', emoji: '⚔️', description: 'Holy wrath increases base damage.', stat: '+2 Dmg' },
-      { name: 'Purify', emoji: '✝️', description: 'Reduces duration of debuffs on self.', stat: '-15% Debuff' },
-      { name: 'Renewing Orbs', emoji: '🌟', description: 'Healing orbs restore ally health on pass.', stat: '+3 Heal' },
-      { name: 'Sanctified Ground', emoji: '🙏', description: 'Ultimate burst heal is more powerful.', stat: '+10 Heal' },
-    ],
-  },
-  assassin: {
-    name: 'Assassin', emoji: '🗡️', role: 'Melee Flanker', color: '#bdc3c7', shape: 'octahedron',
-    stats: { hp: 75, damage: 20, speed: 1.35, cooldown: 300, attackType: 'melee', damageMultiplier: 1.3 },
-    ultimate: { name: 'Shadow Strike', emoji: '🌑', description: 'Teleports behind the nearest enemy with a burst of speed.' },
-    skills: [
-      { name: 'Shadow Blade', emoji: '🗡️', description: 'Shadow-forged steel hits harder.', stat: '+3 Dmg' },
-      { name: 'Swift Strike', emoji: '⚡', description: 'Faster blade work reduces attack delay.', stat: '-20ms CD' },
-      { name: 'Cloak Mastery', emoji: '🌑', description: 'Stealth lasts longer after activation.', stat: '+1s Stealth' },
-      { name: 'Backstab', emoji: '🔪', description: 'Attacks from behind deal bonus damage.', stat: '+15% Back' },
-      { name: 'Smoke Bomb', emoji: '🌫️', description: 'Ultimate creates a larger smoke zone.', stat: '+0.5 Radius' },
-      { name: 'Deadly Poison', emoji: '☠️', description: 'Blade strikes apply damage over time.', stat: '+2 DPS' },
-      { name: 'Phantom Step', emoji: '👤', description: 'Spectral agility boosts move speed.', stat: '+5% Speed' },
-    ],
-  },
-  summoner: {
-    name: 'Summoner', emoji: '👁️', role: 'Ranged Pet Master', color: '#2ecc71', shape: 'hexagon',
-    stats: { hp: 95, damage: 11, speed: 1.0, cooldown: 2000, attackType: 'summon', damageMultiplier: 0.8 },
-    ultimate: { name: 'Elite Summons', emoji: '👑', description: 'Summons 2 powerful elite units — one melee tank, one ranged attacker.' },
-    skills: [
-      { name: 'Strong Minions', emoji: '🐺', description: 'Summoned units gain bonus health.', stat: '+8 HP' },
-      { name: 'Pack Rush', emoji: '💨', description: 'Minions move faster in pursuit.', stat: '+10% Speed' },
-      { name: 'Feral Claws', emoji: '🦷', description: 'Summoned units deal more damage.', stat: '+3 Dmg' },
-      { name: 'Horde Master', emoji: '👑', description: 'Increases maximum active summons.', stat: '+1 Max' },
-      { name: 'Thick Hide', emoji: '🛡️', description: 'Minions take reduced damage.', stat: '-10% Dmg' },
-      { name: 'Elite Upgrade', emoji: '⭐', description: 'Elite summons gain bonus health.', stat: '+15 HP' },
-      { name: 'Soul Link', emoji: '🔗', description: 'Heal when your summons deal damage.', stat: '+3 Heal' },
-    ],
-  },
-  chaos: {
-    name: 'Chaos Witch', emoji: '🌀', role: 'Ranged Disruptor', color: '#bb6bd9', shape: 'dodecahedron',
-    stats: { hp: 90, damage: 14, speed: 1.0, cooldown: 500, attackType: 'ranged', damageMultiplier: 1.1 },
-    ultimate: { name: 'Area Distortion', emoji: '🌀', description: 'Warps reality in a zone, reversing all enemy controls.' },
-    skills: [
-      { name: 'Hex Power', emoji: '🔮', description: 'Chaotic energy amplifies base damage.', stat: '+3 Dmg' },
-      { name: 'Mind Warp', emoji: '🧠', description: 'Confuse effect lasts longer on enemies.', stat: '+0.3s Confuse' },
-      { name: 'Chaos Speed', emoji: '⚡', description: 'Erratic energy boosts movement speed.', stat: '+4% Speed' },
-      { name: 'Entropic Shield', emoji: '🌀', description: 'Chaotic barrier increases max health.', stat: '+12 HP' },
-      { name: 'Curse Amplify', emoji: '💜', description: 'Dark curses amplify all damage dealt.', stat: '+8% Dmg' },
-      { name: 'Chaotic Surge', emoji: '🌊', description: 'Unstable power reduces attack delay.', stat: '-25ms CD' },
-      { name: 'Void Rift', emoji: '🌑', description: 'Ultimate distortion field grows larger.', stat: '+12% Radius' },
-    ],
-  },
-  engineer: {
-    name: 'Engineer', emoji: '⚙️', role: 'Ranged Zone Control', color: '#f39c12', shape: 'cylinder',
-    stats: { hp: 110, damage: 13, speed: 0.9, cooldown: 380, attackType: 'ranged', damageMultiplier: 1.0 },
-    ultimate: { name: 'Deploy Turret', emoji: '🔫', description: 'Deploys an auto-targeting turret that fires at nearby enemies.' },
-    skills: [
-      { name: 'Extended Mines', emoji: '⏱️', description: 'Mines persist longer on the field.', stat: '+3s Life' },
-      { name: 'Explosive Charge', emoji: '💣', description: 'Mines detonate with greater force.', stat: '+5 Dmg' },
-      { name: 'Turret Upgrade', emoji: '🔫', description: 'Turret projectiles hit harder.', stat: '+3 Dmg' },
-      { name: 'Fortified Turret', emoji: '🏗️', description: 'Turret stays deployed longer.', stat: '+2s Life' },
-      { name: 'Rapid Turret', emoji: '⚙️', description: 'Turret fires rounds more frequently.', stat: '-10% CD' },
-      { name: 'Mine Field', emoji: '💥', description: 'Place additional mines simultaneously.', stat: '+1 Mine' },
-      { name: 'Armor Plating', emoji: '🧱', description: 'Extra plating increases max health.', stat: '+12 HP' },
-    ],
-  },
-  paladin: {
-    name: 'Paladin', emoji: '🛡️', role: 'Melee Guardian', color: '#1abc9c', shape: 'torusknot',
-    stats: { hp: 140, damage: 19, speed: 0.9, cooldown: 500, attackType: 'melee', damageMultiplier: 0.9 },
-    ultimate: { name: 'Divine Shield', emoji: '✨', description: 'Grants invulnerability to yourself and nearby allies for a short duration.' },
-    skills: [
-      { name: 'Holy Strike', emoji: '⚔️', description: 'Divine power increases base damage.', stat: '+3 Dmg' },
-      { name: 'Divine Health', emoji: '💛', description: 'Blessed vitality raises max health.', stat: '+15 HP' },
-      { name: 'Shield of Faith', emoji: '🛡️', description: 'Holy ward reduces incoming damage.', stat: '-5% Dmg Taken' },
-      { name: 'Crusader Speed', emoji: '🏃', description: 'Blessed stride quickens movement.', stat: '+3% Speed' },
-      { name: 'Consecration', emoji: '☀️', description: 'Attacks deal splash damage around target.', stat: '+2 Splash' },
-      { name: 'Holy Retribution', emoji: '⚡', description: 'Righteous fury amplifies damage.', stat: '+7% Dmg' },
-      { name: 'Blessing of Light', emoji: '✨', description: 'Ultimate divine shield lasts longer.', stat: '+0.5s Shield' },
-    ],
-  },
-  necromancer: {
-    name: 'Necromancer', emoji: '💀', role: 'Ranged Drainer', color: '#27ae60', shape: 'capsule',
-    stats: { hp: 80, damage: 16, speed: 0.95, cooldown: 650, attackType: 'ranged', damageMultiplier: 1.3 },
-    ultimate: { name: 'Soul Drain', emoji: '💥', description: 'Unleashes a soul explosion that drains life from all enemies in range.' },
-    skills: [
-      { name: 'Soul Drain', emoji: '💚', description: 'Attacks steal life from enemies.', stat: '+2 Lifesteal' },
-      { name: 'Curse of Decay', emoji: '☠️', description: 'Projectiles apply damage over time.', stat: '+2 DPS' },
-      { name: 'Dark Power', emoji: '💀', description: 'Necrotic energy increases base damage.', stat: '+3 Dmg' },
-      { name: 'Undead Resilience', emoji: '🦴', description: 'Unholy constitution raises max health.', stat: '+12 HP' },
-      { name: 'Death Haste', emoji: '👻', description: 'Spectral speed boosts movement.', stat: '+4% Speed' },
-      { name: 'Wither Touch', emoji: '🖤', description: 'Withering curse amplifies all damage.', stat: '+8% Dmg' },
-      { name: 'Soul Explosion', emoji: '💥', description: 'Ultimate soul drain grows in radius.', stat: '+10% Radius' },
-    ],
-  },
-};
-
-// ── VibejJam Portal System ──────────────────────────────────────────────────
-function parseUrlParams() {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    portal: params.get('portal') === 'true',
-    username: params.get('username') || null,
-    classType: params.get('classType') || null,
-    color: params.get('color') || null,
-    speed: params.get('speed') ? parseFloat(params.get('speed')) : null,
-    ref: params.get('ref') || null,
-  };
-}
-
-let portalParams = parseUrlParams();
-let portalSystem = null;
-// Portal exit URL - use window.location.origin for production compatibility
-let portalExitUrl = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-  ? 'https://vibej.am/portal/2026'
-  : 'https://vibej.am/portal/2026';
 
 // ── Socket.io ───────────────────────────────────────────────────────────────
 const socket = io(SERVER_URL);
@@ -288,57 +122,6 @@ composer.addPass(outlinePass);
 
 const gammaPass = new ShaderPass(GammaCorrectionShader);
 composer.addPass(gammaPass);
-
-// ── Portal System Initialization ────────────────────────────────────────────
-function generatePortalExitUrl(stats = {}) {
-  const params = new URLSearchParams({
-    username: (lobbyInput?.value || localStorage.getItem('arena_username') || 'Player'),
-    ref: portalParams.ref || '',
-    xp: stats.xp || 0,
-    level: stats.level || 1,
-    kills: stats.kills || 0,
-    survived_time: stats.survivedTime || 0,
-    ...stats,
-  });
-  return portalExitUrl + '?' + params.toString();
-}
-
-function initPortalSystem() {
-  if (typeof initVibeJamPortals !== 'function') {
-    console.warn('[Portal] VibejJam portal script not loaded yet');
-    return;
-  }
-
-  try {
-    portalSystem = initVibeJamPortals({
-      scene: scene,
-      getPlayer: () => {
-        const localEntry = playerMeshes[myId];
-        return localEntry ? localEntry.mesh : null;
-      },
-      spawnPoint: { x: 0, y: 0, z: 0 },
-      exitPosition: { x: -200, y: 200, z: -300 },
-      onPortalExit: (exitData) => {
-        // Collect player stats for exit
-        const localEntry = playerMeshes[myId];
-        const exitStats = {
-          classType: selectedCharacter,
-          ...exitData,
-        };
-
-        if (localEntry && localEntry.level) {
-          exitStats.level = localEntry.level;
-          exitStats.xp = localEntry.xp || 0;
-        }
-
-        window.location.href = generatePortalExitUrl(exitStats);
-      }
-    });
-    console.log('[Portal] Portal system initialized');
-  } catch (e) {
-    console.error('[Portal] Failed to initialize:', e);
-  }
-}
 
 function registerOutlineObject(mesh) {
   if (!mesh || outlineObjects.includes(mesh)) return;
@@ -568,91 +351,26 @@ function createCharacterGroup(type, teamColor) {
     emissiveIntensity: 0.85,
   });
 
-  // Shared accent materials
-  const metalMat = new THREE.MeshToonMaterial({ color: 0x888899, emissive: 0x333344, emissiveIntensity: 0.15 });
-  const brownMat = new THREE.MeshToonMaterial({ color: 0x6b4226, emissive: 0x3a2010, emissiveIntensity: 0.1 });
-  const whiteMat = new THREE.MeshToonMaterial({ color: 0xeeeeee, emissive: 0xaaaaaa, emissiveIntensity: 0.15 });
-
   switch (type) {
-    // ── WARRIOR (cube) — Greatsword + Viking Helmet ──
     case 'cube': {
       bodyMesh = new THREE.Mesh(geoCache.cube, bodyMat);
-      // Shoulder armor pads
       const padGeo = new THREE.BoxGeometry(0.35, 0.15, 0.35);
       for (const offset of [[0.5, 0.35, 0.5], [-0.5, 0.35, 0.5], [0.5, 0.35, -0.5], [-0.5, 0.35, -0.5]]) {
         const pad = new THREE.Mesh(padGeo, darkMat);
         pad.position.set(...offset);
         group.add(pad);
       }
-      // Viking helmet (flat top + two horns)
-      const helmet = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 0.25, 8), metalMat);
-      helmet.position.set(0, 0.62, 0);
-      group.add(helmet);
-      const hornGeo = new THREE.ConeGeometry(0.07, 0.35, 6);
-      for (const side of [-1, 1]) {
-        const horn = new THREE.Mesh(hornGeo, whiteMat);
-        horn.position.set(side * 0.38, 0.75, 0);
-        horn.rotation.z = side * -0.5;
-        group.add(horn);
-      }
-      // Greatsword (blade + handle) — held on right side
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.1, 0.03), metalMat);
-      blade.position.set(0.65, 0.15, 0);
-      group.add(blade);
-      const swordTip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 4), metalMat);
-      swordTip.position.set(0.65, 0.75, 0);
-      group.add(swordTip);
-      const hilt = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.25, 0.03), brownMat);
-      hilt.position.set(0.65, -0.42, 0);
-      group.add(hilt);
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.06, 0.06), metalMat);
-      guard.position.set(0.65, -0.28, 0);
-      group.add(guard);
       break;
     }
-
-    // ── ARCHER (pyramid) — Bow + Hood ──
     case 'pyramid': {
       bodyMesh = new THREE.Mesh(new THREE.TetrahedronGeometry(0.7, 0), bodyMat);
-      // Eye
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), glowMat);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 10), glowMat);
       eye.position.set(0, 0, 0.55);
       group.add(eye);
-      // Hood (cone on top)
-      const hood = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.4, 6), darkMat);
-      hood.position.set(0, 0.65, 0);
-      group.add(hood);
-      // Bow — curved arc on left side using a torus segment
-      const bowMat = new THREE.MeshToonMaterial({ color: 0x8B5A2B, emissive: 0x4a2a10, emissiveIntensity: 0.15 });
-      const bowArc = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.035, 6, 12, Math.PI), bowMat);
-      bowArc.position.set(-0.6, 0, 0);
-      bowArc.rotation.y = Math.PI / 2;
-      bowArc.rotation.z = Math.PI / 2;
-      group.add(bowArc);
-      // Bow string
-      const stringGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.9, 4);
-      const stringMat = new THREE.MeshToonMaterial({ color: 0xccccaa, emissive: 0x888866, emissiveIntensity: 0.2 });
-      const bowString = new THREE.Mesh(stringGeo, stringMat);
-      bowString.position.set(-0.6, 0, 0);
-      group.add(bowString);
-      // Quiver on back (small cylinder)
-      const quiver = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.5, 6), brownMat);
-      quiver.position.set(0.15, 0.1, -0.5);
-      quiver.rotation.x = 0.2;
-      group.add(quiver);
-      // Arrow tips sticking out of quiver
-      for (let i = 0; i < 3; i++) {
-        const arrowTip = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.12, 4), metalMat);
-        arrowTip.position.set(0.15 + (i - 1) * 0.04, 0.42, -0.5);
-        group.add(arrowTip);
-      }
       break;
     }
-
-    // ── MAGE (icosahedron) — Staff + Wizard Hat ──
     case 'icosahedron': {
       bodyMesh = new THREE.Mesh(geoCache.icosahedron, bodyMat);
-      // Arcane rings
       const ringA = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.05, 32), new THREE.MeshToonMaterial({ color: 0x9b59b6, emissive: 0x9b59b6, emissiveIntensity: 0.4, side: THREE.DoubleSide }));
       ringA.rotation.x = Math.PI / 2;
       ringA.position.y = 0.1;
@@ -661,123 +379,39 @@ function createCharacterGroup(type, teamColor) {
       ringB.position.y = 0.05;
       group.add(ringA, ringB);
       bodyMesh.userData.magicRings = [ringA, ringB];
-      // Wizard hat (cone + brim)
-      const hatMat = new THREE.MeshToonMaterial({ color: 0x2c1654, emissive: 0x1a0a3a, emissiveIntensity: 0.15 });
-      const hat = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.65, 8), hatMat);
-      hat.position.set(0, 0.95, 0);
-      hat.rotation.z = 0.15; // slightly tilted
-      group.add(hat);
-      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 12), hatMat);
-      brim.position.set(0, 0.62, 0);
-      group.add(brim);
-      // Staff — on right side
-      const staffPole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 1.6, 6), brownMat);
-      staffPole.position.set(0.7, 0.1, 0);
-      group.add(staffPole);
-      // Crystal orb on top of staff
-      const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), new THREE.MeshToonMaterial({ color: 0xaa55ff, emissive: 0xaa55ff, emissiveIntensity: 0.7 }));
-      crystal.position.set(0.7, 0.95, 0);
-      group.add(crystal);
       break;
     }
-
-    // ── PRIEST (torus) — Holy Scepter + Halo Crown ──
     case 'torus': {
       bodyMesh = new THREE.Mesh(geoCache.torus, bodyMat);
-      // Pulse orb
       const orb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), glowMat);
       orb.position.set(0, 0, 0);
       group.add(orb);
       bodyMesh.userData.pulseOrb = orb;
-      // Halo above head
-      const haloMat = new THREE.MeshToonMaterial({ color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.6, side: THREE.DoubleSide });
-      const halo = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.42, 24), haloMat);
-      halo.rotation.x = Math.PI / 2;
-      halo.position.y = 0.7;
-      group.add(halo);
-      // Holy scepter — golden rod with orb
-      const scepterPole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 1.0, 6), new THREE.MeshToonMaterial({ color: 0xdaa520, emissive: 0xaa8800, emissiveIntensity: 0.2 }));
-      scepterPole.position.set(0.55, -0.05, 0);
-      group.add(scepterPole);
-      const scepterOrb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), glowMat);
-      scepterOrb.position.set(0.55, 0.5, 0);
-      group.add(scepterOrb);
-      // White cloth drape (flat box representing robes)
-      const robe = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.7), whiteMat);
-      robe.position.set(0, -0.35, 0);
-      group.add(robe);
       break;
     }
-
-    // ── ASSASSIN (octahedron) — Dual Daggers + Mask ──
     case 'octahedron': {
       bodyMesh = new THREE.Mesh(geoCache.octahedron, bodyMat);
-      // Face mask (dark half-sphere in front)
-      const mask = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6, 0, Math.PI), darkMat);
-      mask.position.set(0, 0.15, 0.45);
-      group.add(mask);
-      // Scarf tails (two thin boxes trailing behind)
-      const scarfMat = new THREE.MeshToonMaterial({ color: 0x222222, emissive: 0x111111, emissiveIntensity: 0.1 });
-      for (const xOff of [-0.08, 0.08]) {
-        const scarf = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.5), scarfMat);
-        scarf.position.set(xOff, 0.25, -0.7);
-        scarf.rotation.x = -0.2;
-        group.add(scarf);
-      }
-      // Dual daggers — two short blades on each side
-      const daggerBlade = new THREE.BoxGeometry(0.04, 0.5, 0.02);
-      const daggerHandle = new THREE.BoxGeometry(0.03, 0.15, 0.03);
-      for (const side of [-1, 1]) {
-        const blade = new THREE.Mesh(daggerBlade, metalMat);
-        blade.position.set(side * 0.55, 0.05, 0.15);
-        blade.rotation.z = side * 0.15;
+      const bladeGeo = new THREE.BoxGeometry(0.1, 0.35, 0.05);
+      for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+        const blade = new THREE.Mesh(bladeGeo, darkMat);
+        blade.position.set(Math.cos(angle) * 0.5, 0, Math.sin(angle) * 0.5);
+        blade.rotation.y = angle;
         group.add(blade);
-        const handle = new THREE.Mesh(daggerHandle, brownMat);
-        handle.position.set(side * 0.55, -0.28, 0.15);
-        handle.rotation.z = side * 0.15;
-        group.add(handle);
       }
       break;
     }
-
-    // ── SUMMONER (hexagon) — Spirit Lantern + Horned Crown ──
     case 'hexagon': {
       bodyMesh = new THREE.Mesh(geoCache.hexagon, bodyMat);
-      // Orbiting spirit orbs
       for (let i = 0; i < 3; i++) {
-        const spiritOrb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), glowMat);
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), glowMat);
         const angle = (Math.PI * 2 * i) / 3;
-        spiritOrb.position.set(Math.cos(angle) * 0.55, 0.12, Math.sin(angle) * 0.55);
-        group.add(spiritOrb);
+        orb.position.set(Math.cos(angle) * 0.55, 0.12, Math.sin(angle) * 0.55);
+        group.add(orb);
       }
-      // Horned crown
-      const crownMat = new THREE.MeshToonMaterial({ color: 0x2a5a3a, emissive: 0x1a3a2a, emissiveIntensity: 0.2 });
-      const crownBase = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.38, 0.12, 6), crownMat);
-      crownBase.position.set(0, 0.56, 0);
-      group.add(crownBase);
-      for (let i = 0; i < 3; i++) {
-        const a = (Math.PI * 2 * i) / 3;
-        const crownSpike = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.22, 4), crownMat);
-        crownSpike.position.set(Math.cos(a) * 0.28, 0.72, Math.sin(a) * 0.28);
-        group.add(crownSpike);
-      }
-      // Spirit lantern — hanging off left side (small cage + flame)
-      const lanternCage = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.18, 6, 1, true), darkMat);
-      lanternCage.position.set(-0.6, 0.1, 0);
-      group.add(lanternCage);
-      const lanternFlame = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), new THREE.MeshToonMaterial({ color: 0x44ffaa, emissive: 0x44ffaa, emissiveIntensity: 0.9 }));
-      lanternFlame.position.set(-0.6, 0.1, 0);
-      group.add(lanternFlame);
-      const lanternPole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.9, 4), brownMat);
-      lanternPole.position.set(-0.6, -0.2, 0);
-      group.add(lanternPole);
       break;
     }
-
-    // ── CHAOS WITCH (dodecahedron) — Chaos Orb Staff + Witch Hat ──
     case 'dodecahedron': {
       bodyMesh = new THREE.Mesh(geoCache.dodecahedron, bodyMat);
-      // Chaos spikes
       const spikeGeo = new THREE.ConeGeometry(0.08, 0.3, 6);
       for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
         const spike = new THREE.Mesh(spikeGeo, glowMat);
@@ -786,30 +420,10 @@ function createCharacterGroup(type, teamColor) {
         spike.rotation.z = angle;
         group.add(spike);
       }
-      // Witch hat (tall crooked cone + brim)
-      const witchHatMat = new THREE.MeshToonMaterial({ color: 0x2a1040, emissive: 0x1a0830, emissiveIntensity: 0.15 });
-      const witchHat = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.7, 8), witchHatMat);
-      witchHat.position.set(0, 0.9, 0);
-      witchHat.rotation.z = 0.25; // crooked
-      witchHat.rotation.x = -0.1;
-      group.add(witchHat);
-      const witchBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.04, 12), witchHatMat);
-      witchBrim.position.set(0, 0.58, 0);
-      group.add(witchBrim);
-      // Chaos orb staff — swirling orb on a twisted staff
-      const chaosStaff = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 1.3, 6), new THREE.MeshToonMaterial({ color: 0x3d1e5e, emissive: 0x2a1040, emissiveIntensity: 0.2 }));
-      chaosStaff.position.set(0.65, 0, 0);
-      group.add(chaosStaff);
-      const chaosOrb = new THREE.Mesh(new THREE.DodecahedronGeometry(0.13, 0), new THREE.MeshToonMaterial({ color: 0xff44ff, emissive: 0xff44ff, emissiveIntensity: 0.7 }));
-      chaosOrb.position.set(0.65, 0.7, 0);
-      group.add(chaosOrb);
       break;
     }
-
-    // ── ENGINEER (cylinder) — Wrench + Goggles ──
     case 'cylinder': {
       bodyMesh = new THREE.Mesh(geoCache.cylinder, bodyMat);
-      // Armor plates
       const boxGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
       for (const offset of [[0.45, 0.15, 0], [-0.45, 0.15, 0], [0, 0.15, 0.45], [0, 0.15, -0.45]]) {
         const box = new THREE.Mesh(boxGeo, darkMat);
@@ -819,70 +433,18 @@ function createCharacterGroup(type, teamColor) {
       const core = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 10), glowMat);
       core.position.set(0, 0.15, 0);
       group.add(core);
-      // Goggles (two small torus on face)
-      const goggleMat = new THREE.MeshToonMaterial({ color: 0x444444, emissive: 0x222222, emissiveIntensity: 0.1 });
-      const lensMat = new THREE.MeshToonMaterial({ color: 0x66ccff, emissive: 0x3388cc, emissiveIntensity: 0.4 });
-      for (const side of [-1, 1]) {
-        const goggleRim = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.025, 6, 12), goggleMat);
-        goggleRim.position.set(side * 0.18, 0.25, 0.5);
-        group.add(goggleRim);
-        const lens = new THREE.Mesh(new THREE.CircleGeometry(0.09, 8), lensMat);
-        lens.position.set(side * 0.18, 0.25, 0.52);
-        group.add(lens);
-      }
-      const goggleStrap = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.06, 0.03), goggleMat);
-      goggleStrap.position.set(0, 0.25, 0.49);
-      group.add(goggleStrap);
-      // Large wrench — held on right side
-      const wrenchShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.9, 6), metalMat);
-      wrenchShaft.position.set(0.6, -0.05, 0);
-      group.add(wrenchShaft);
-      // Wrench head (open-ended, two prongs)
-      for (const off of [-0.08, 0.08]) {
-        const prong = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.2, 0.05), metalMat);
-        prong.position.set(0.6 + off, 0.48, 0);
-        group.add(prong);
-      }
       break;
     }
-
-    // ── PALADIN (torusknot) — Shield + Warhammer + Halo ──
     case 'torusknot': {
       bodyMesh = new THREE.Mesh(geoCache.torusknot, bodyMat);
-      // Holy halo
       const halo = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.7, 32), new THREE.MeshToonMaterial({ color: 0x1abc9c, emissive: 0x1abc9c, emissiveIntensity: 0.6, side: THREE.DoubleSide }));
       halo.rotation.x = Math.PI / 2;
       halo.position.y = 0.75;
       group.add(halo);
-      // Shield on left side (rounded rectangle approximated with cylinder slice)
-      const shieldMat = new THREE.MeshToonMaterial({ color: 0x2288aa, emissive: 0x115566, emissiveIntensity: 0.15 });
-      const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.3, 0.06, 6), shieldMat);
-      shield.position.set(-0.65, 0, 0.05);
-      shield.rotation.z = Math.PI / 2;
-      group.add(shield);
-      // Shield cross emblem
-      const crossMat = new THREE.MeshToonMaterial({ color: 0xffd700, emissive: 0xccaa00, emissiveIntensity: 0.3 });
-      const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.25, 0.02), crossMat);
-      crossV.position.set(-0.65, 0, 0.09);
-      group.add(crossV);
-      const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.15, 0.02), crossMat);
-      crossH.position.set(-0.65, 0.03, 0.09);
-      crossH.rotation.z = Math.PI / 2;
-      group.add(crossH);
-      // Warhammer on right side
-      const hammerShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 1.1, 6), brownMat);
-      hammerShaft.position.set(0.6, 0, 0);
-      group.add(hammerShaft);
-      const hammerHead = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.18), metalMat);
-      hammerHead.position.set(0.6, 0.55, 0);
-      group.add(hammerHead);
       break;
     }
-
-    // ── NECROMANCER (capsule) — Scythe + Bone Crown + Skulls ──
     case 'capsule': {
       bodyMesh = new THREE.Mesh(geoCache.capsule, bodyMat);
-      // Orbiting skulls
       const skullMat = new THREE.MeshToonMaterial({ color: 0x2d2d2d, emissive: 0x27ae60, emissiveIntensity: 0.3 });
       for (let i = 0; i < 2; i++) {
         const skull = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), skullMat);
@@ -890,34 +452,8 @@ function createCharacterGroup(type, teamColor) {
         skull.position.set(Math.cos(angle) * 0.6, 0.2, Math.sin(angle) * 0.6);
         group.add(skull);
       }
-      // Bone crown (small spikes on top)
-      const boneMat = new THREE.MeshToonMaterial({ color: 0xd4c9a8, emissive: 0x887755, emissiveIntensity: 0.1 });
-      for (let i = 0; i < 5; i++) {
-        const a = (Math.PI * 2 * i) / 5;
-        const boneSpike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.2, 4), boneMat);
-        boneSpike.position.set(Math.cos(a) * 0.25, 0.65, Math.sin(a) * 0.25);
-        group.add(boneSpike);
-      }
-      // Scythe — long curved weapon on right side
-      // Shaft
-      const scytheShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 1.5, 6), brownMat);
-      scytheShaft.position.set(0.55, 0.1, 0);
-      group.add(scytheShaft);
-      // Blade (curved — use a torus segment)
-      const scytheBladeMat = new THREE.MeshToonMaterial({ color: 0x556655, emissive: 0x27ae60, emissiveIntensity: 0.25 });
-      const scytheBlade = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.02, 4, 12, Math.PI * 0.7), scytheBladeMat);
-      scytheBlade.position.set(0.55, 0.85, 0.15);
-      scytheBlade.rotation.y = Math.PI / 2;
-      scytheBlade.rotation.x = -0.3;
-      group.add(scytheBlade);
-      // Blade tip (sharp end)
-      const scytheTip = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.15, 4), scytheBladeMat);
-      scytheTip.position.set(0.55, 0.75, 0.38);
-      scytheTip.rotation.x = Math.PI / 2;
-      group.add(scytheTip);
       break;
     }
-
     default: {
       bodyMesh = new THREE.Mesh(geoCache.cube, bodyMat);
       break;
@@ -1010,7 +546,6 @@ function createPlayerMesh(id, data) {
     prevPos: new THREE.Vector3(data.x, data.y, data.z),
     isAttacking: false,
     attackTimer: 0,
-    emoteAnim: null,
   };
 }
 
@@ -1068,54 +603,6 @@ function fadeToAction(entry, newActionName, fadeDuration = 0.3) {
   entry.currentAnim = newActionName;
 }
 
-function triggerEmoteAnimation(playerId, emoteId) {
-  const entry = playerMeshes[playerId];
-  if (!entry) return;
-  entry.emoteAnim = {
-    emoteId: String(emoteId || ''),
-    startedAt: performance.now(),
-    durationMs: EMOTE_ANIM_DURATION_MS,
-  };
-}
-
-function getEmoteMotion(entry, nowMs) {
-  if (!entry || !entry.emoteAnim) return null;
-  const { emoteId, startedAt, durationMs } = entry.emoteAnim;
-  const progress = (nowMs - startedAt) / Math.max(1, durationMs);
-  if (progress >= 1) {
-    entry.emoteAnim = null;
-    return null;
-  }
-
-  const t = Math.max(0, Math.min(1, progress));
-  const pulse = Math.sin(t * Math.PI);
-
-  if (emoteId === '1') {
-    return {
-      y: Math.abs(Math.sin(t * Math.PI * 5)) * 0.22,
-      yaw: 0,
-      pitch: 0.04 * pulse,
-      roll: Math.sin(t * Math.PI * 6) * 0.08 * (1 - t),
-    };
-  }
-
-  if (emoteId === '2') {
-    return {
-      y: Math.abs(Math.sin(t * Math.PI * 8)) * 0.12,
-      yaw: Math.sin(t * Math.PI * 20) * 0.09 * (1 - t),
-      pitch: -0.06 * pulse,
-      roll: 0,
-    };
-  }
-
-  return {
-    y: 0.10 + Math.abs(Math.sin(t * Math.PI * 6)) * 0.18,
-    yaw: Math.sin(t * Math.PI * 10) * 0.18,
-    pitch: 0,
-    roll: 0.05 * Math.sin(t * Math.PI * 12),
-  };
-}
-
 // ── Orb && Projectile Entity Management ──────────────────────────────────────
 const orbMeshes = {};
 const orbGeo = new THREE.OctahedronGeometry(0.3, 0);
@@ -1133,144 +620,39 @@ function removeOrbMesh(id) {
 }
 
 const projMeshes = {};
-
-// ── Shared Projectile Geometries (allocated once) ──────────────────────────
-const projGeoDefault = new THREE.SphereGeometry(0.3, 8, 8);
-// Archer
-const projGeoArrowShaft = new THREE.CylinderGeometry(0.06, 0.06, 1.0, 6);
-const projGeoArrowHead = new THREE.ConeGeometry(0.18, 0.35, 6);
-// Mage
-const projGeoBoltCore = new THREE.IcosahedronGeometry(0.45, 1);
-const projGeoBoltShell = new THREE.IcosahedronGeometry(0.6, 0);
-// Priest
-const projGeoOrbCore = new THREE.SphereGeometry(0.4, 12, 12);
-const projGeoOrbRing = new THREE.RingGeometry(0.5, 0.65, 16);
-// Summoner
-const projGeoHomingCore = new THREE.SphereGeometry(0.35, 8, 8);
-const projGeoHomingFin = new THREE.ConeGeometry(0.12, 0.5, 4);
-// Chaos
-const projGeoHexOuter = new THREE.OctahedronGeometry(0.4, 0);
-const projGeoHexInner = new THREE.OctahedronGeometry(0.22, 0);
-// Necromancer
-const projGeoCurseOuter = new THREE.TetrahedronGeometry(0.45, 0);
-const projGeoCurseInner = new THREE.TetrahedronGeometry(0.45, 0);
-
-// ── Shared Accent Materials (reused across all projectiles) ────────────────
-const projAccentWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-const projGreenGlowMat = new THREE.MeshBasicMaterial({
-  color: 0x00ff44, transparent: true, opacity: 0.5,
-  blending: THREE.AdditiveBlending
-});
-
-// Engineer mine geometry
-const projGeoMineBody = new THREE.CylinderGeometry(0.4, 0.45, 0.2, 8);
-const projGeoMineSpike = new THREE.ConeGeometry(0.08, 0.25, 4);
+const projGeoDefault = new THREE.SphereGeometry(0.15, 8, 8);
+const projGeoArrow = new THREE.ConeGeometry(0.08, 0.4, 6);
+const projGeoBolt = new THREE.IcosahedronGeometry(0.2, 0);
+const projGeoOrb = new THREE.SphereGeometry(0.22, 10, 10);
+const projGeoCurse = new THREE.TetrahedronGeometry(0.18, 0);
+const projGeoHex = new THREE.OctahedronGeometry(0.14, 0);
 
 function createProjMesh(id, data) {
-  if (data.visible === false) return;
+  if (data.visible === false || data.kind === 'mine') return;
   const kind = data.kind || 'normal';
   const color = data.ownerColor || '#74b9ff';
   const ownerClass = data.ownerClass || '';
-  const c = new THREE.Color(color);
-  const group = new THREE.Group();
-  group.position.set(data.x, 0.5, data.z);
-  const entry = { mesh: group, targetX: data.x, targetZ: data.z, kind, ownerClass };
-
-  if (ownerClass === 'archer') {
-    // Elongated arrow: shaft + white tip, pre-rotated so arrow points along local +Z
-    const shaftMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 0.5 });
-    const shaft = new THREE.Mesh(projGeoArrowShaft, shaftMat);
-    shaft.rotation.x = Math.PI / 2; // lay cylinder from Y-axis to Z-axis
-    const head = new THREE.Mesh(projGeoArrowHead, projAccentWhiteMat);
-    head.rotation.x = Math.PI / 2; // cone tip points along +Z
-    head.position.z = 0.65;
-    group.add(shaft, head);
-  } else if (ownerClass === 'mage') {
-    // Double-shell arcane bolt
-    const innerMat = new THREE.MeshBasicMaterial({ color: c });
-    const inner = new THREE.Mesh(projGeoBoltCore, innerMat);
-    const shellMat = new THREE.MeshBasicMaterial({
-      color: c, transparent: true, opacity: 0.3,
-      blending: THREE.AdditiveBlending
-    });
-    const shell = new THREE.Mesh(projGeoBoltShell, shellMat);
-    group.add(inner, shell);
-    entry.inner = inner;
-    entry.shell = shell;
-  } else if (ownerClass === 'priest') {
-    // Healing orb with halo ring
-    const coreMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 0.9 });
-    const core = new THREE.Mesh(projGeoOrbCore, coreMat);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff, transparent: true, opacity: 0.5,
-      side: THREE.DoubleSide
-    });
-    const ring = new THREE.Mesh(projGeoOrbRing, ringMat);
-    ring.rotation.x = Math.PI / 2;
-    group.add(core, ring);
-    entry.ring = ring;
-  } else if (ownerClass === 'necromancer') {
-    // Merkaba: interlocking tetrahedra with green glow
-    const outerMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 0.7 });
-    const outer = new THREE.Mesh(projGeoCurseOuter, outerMat);
-    const inner = new THREE.Mesh(projGeoCurseInner, projGreenGlowMat);
-    inner.rotation.x = Math.PI; // inverted
-    group.add(outer, inner);
-    entry.inner = inner;
-  } else if (ownerClass === 'chaos') {
-    // Nested counter-rotating octahedra
-    const outerMat = new THREE.MeshBasicMaterial({
-      color: c, transparent: true, opacity: 0.45,
-      side: THREE.DoubleSide
-    });
-    const outer = new THREE.Mesh(projGeoHexOuter, outerMat);
-    const innerMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 1.0 });
-    const inner = new THREE.Mesh(projGeoHexInner, innerMat);
-    group.add(outer, inner);
-    entry.inner = inner;
-    entry.shell = outer;
-  } else if (kind === 'summoner_homing') {
-    // Homing tracker with 4 fins
-    const coreMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 0.85 });
-    const core = new THREE.Mesh(projGeoHomingCore, coreMat);
-    group.add(core);
-    const finMat = new THREE.MeshToonMaterial({ color: 0x222222, emissive: c, emissiveIntensity: 0.3 });
-    for (let i = 0; i < 4; i++) {
-      const angle = (Math.PI / 2) * i;
-      const fin = new THREE.Mesh(projGeoHomingFin, finMat);
-      fin.position.set(Math.cos(angle) * 0.3, 0, Math.sin(angle) * 0.3);
-      fin.rotation.x = Math.PI;
-      fin.rotation.y = angle;
-      group.add(fin);
-    }
-  } else if (kind === 'mine') {
-    // Engineer mine: flat disc with spikes, sits on the ground
-    group.position.y = 0.12;
-    const bodyMat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 0.6 });
-    const body = new THREE.Mesh(projGeoMineBody, bodyMat);
-    group.add(body);
-    const spikeMat = new THREE.MeshBasicMaterial({ color: 0xff4444 });
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI / 3) * i;
-      const spike = new THREE.Mesh(projGeoMineSpike, spikeMat);
-      spike.position.set(Math.cos(angle) * 0.32, 0.15, Math.sin(angle) * 0.32);
-      group.add(spike);
-    }
-  } else {
-    // Default / turret_shot: simple larger sphere
-    const mat = new THREE.MeshToonMaterial({ color: c, emissive: c, emissiveIntensity: 1.0 });
-    group.add(new THREE.Mesh(projGeoDefault, mat));
-  }
-
-  scene.add(group);
-  projMeshes[id] = entry;
+  const emissiveBoost = kind === 'turret_shot' ? 0.65 : (kind === 'summoner_homing' ? 0.85 : 1.0);
+  const mat = new THREE.MeshToonMaterial({
+    color: new THREE.Color(color),
+    emissive: new THREE.Color(color),
+    emissiveIntensity: emissiveBoost
+  });
+  let geo = projGeoDefault;
+  if (ownerClass === 'archer') geo = projGeoArrow;
+  else if (ownerClass === 'mage') geo = projGeoBolt;
+  else if (ownerClass === 'priest') geo = projGeoOrb;
+  else if (ownerClass === 'necromancer') geo = projGeoCurse;
+  else if (ownerClass === 'chaos') geo = projGeoHex;
+  else if (kind === 'summoner_homing') geo = projGeoOrb;
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(data.x, 0.5, data.z);
+  scene.add(mesh);
+  projMeshes[id] = { mesh, targetX: data.x, targetZ: data.z, kind, ownerClass };
 }
 function removeProjMesh(id) {
   const entry = projMeshes[id];
-  if (!entry) return;
-  entry.mesh.traverse(obj => { if (obj.isMesh && obj.material !== projAccentWhiteMat && obj.material !== projGreenGlowMat) obj.material.dispose(); });
-  scene.remove(entry.mesh);
-  delete projMeshes[id];
+  if (!entry) return; scene.remove(entry.mesh); entry.mesh.material.dispose(); delete projMeshes[id];
 }
 
 // ── Base Entity Management ──────────────────────────────────────────────────
@@ -1523,14 +905,12 @@ function getSwingMat(color) {
   swingMatCache[color] = mat;
   return mat;
 }
-function spawnSwingArc(x, z, aimRotY, color) {
+function spawnSwingArc(x, z, rotY, color) {
   const mat = getSwingMat(color);
   const mesh = new THREE.Mesh(swingGeo, mat.clone());
   mesh.position.set(x, 0.5, z);
   mesh.rotation.x = -Math.PI / 2;
-  // aimRotY points away from target (has +PI), so subtract PI to face toward target,
-  // then subtract PI/4 to center the 90° arc on the aim direction
-  mesh.rotation.z = aimRotY - Math.PI - Math.PI / 4;
+  mesh.rotation.z = rotY - Math.PI / 4;
   scene.add(mesh);
   swingArcs.push({ mesh, life: 0.25 });
 }
@@ -1549,7 +929,11 @@ const helpButton = document.getElementById('help-button');
 const howToModal = document.getElementById('howto-modal');
 const howToClose = document.getElementById('howto-close');
 const skillCardOverlay = document.getElementById('skill-card-overlay');
-const skillCardWrap = document.getElementById('skill-card-wrap');
+const skillCardButtons = [
+  document.getElementById('skill-card-0'),
+  document.getElementById('skill-card-1'),
+  document.getElementById('skill-card-2'),
+];
 
 const hudUltimate = document.getElementById('hud-ultimate');
 const hudUltimateFill = document.getElementById('hud-ultimate-fill');
@@ -1565,8 +949,7 @@ const victoryText = document.getElementById('victory-text');
 const scoreboardBody = document.getElementById('endgame-scoreboard-body');
 
 // Global Variables
-const EMOTES = { '1': '\u{1F600}', '2': '\u{1F621}', '3': '\u{1F525}' };
-const EMOTE_BY_KEY_CODE = { Digit1: '1', Digit2: '2', Digit3: '3' };
+const EMOTES = { '1': '😀', '2': '😡', '3': '🔥' };
 let isTyping = false;
 const activeSocials = [];
 let ultCooldown = 15000;
@@ -1577,50 +960,15 @@ let isHowToOpen = false;
 let isSkillCardOpen = false;
 let currentSkillOptions = [];
 
-function focusChatInput() {
-  if (!chatInput) return;
-  chatInput.classList.add('active');
-  isTyping = true;
-
-  const applyFocus = () => {
-    if (!chatInput.classList.contains('active')) return;
-    chatInput.focus();
-    const caret = chatInput.value.length;
-    try {
-      chatInput.setSelectionRange(caret, caret);
-    } catch (_) {
-      // Ignore selection errors on unsupported browsers/input states.
-    }
-  };
-
-  // Immediate attempt + deferred retries for browsers that ignore focus while visibility toggles.
-  applyFocus();
-  requestAnimationFrame(applyFocus);
-  setTimeout(applyFocus, 0);
-  setTimeout(applyFocus, 60);
-  setTimeout(applyFocus, 140);
-}
-
-function hideChatInput() {
-  if (!chatInput) return;
-  isTyping = false;
-  chatInput.classList.remove('active');
-  chatInput.blur();
-}
-
-function releaseChatFocusToGame() {
-  if (!chatInput || !chatInput.classList.contains('active')) return;
-  isTyping = false;
-  chatInput.blur();
-}
-
 function setHowToOpen(open) {
   if (open && isSkillCardOpen) return;
   isHowToOpen = !!open;
   if (howToModal) howToModal.style.display = isHowToOpen ? 'block' : 'none';
   if (isHowToOpen) {
-    if (chatInput && chatInput.classList.contains('active')) {
-      hideChatInput();
+    if (isTyping) {
+      isTyping = false;
+      chatInput.classList.remove('active');
+      chatInput.blur();
     }
     for (const k in keys) keys[k] = false;
     if (inGame) emitMoveIntent();
@@ -1637,76 +985,59 @@ function setSkillCardOpen(open) {
   }
 }
 
-const CLASS_COLORS = {
-  warrior: '#ff4444', archer: '#44cc44', mage: '#8844ff', priest: '#ffcc44',
-  assassin: '#cc44cc', summoner: '#44ccaa', chaos: '#ff6600', engineer: '#ffaa22',
-  paladin: '#44aaff', necromancer: '#00cc66',
-};
-
-function renderSkillCards(choices, classType) {
-  currentSkillOptions = [];
-  if (!skillCardWrap) return;
-  skillCardWrap.innerHTML = '';
+function renderSkillCards(choices) {
+  currentSkillOptions = [null, null, null];
   if (!Array.isArray(choices)) choices = [];
-  const accent = CLASS_COLORS[classType] || '#7fa7ff';
-
-  for (let i = 0; i < choices.length; i++) {
+  for (let i = 0; i < skillCardButtons.length; i++) {
+    const btn = skillCardButtons[i];
+    if (!btn) continue;
     const choice = choices[i];
-    if (!choice) continue;
-    currentSkillOptions[i] = String(choice.id || '');
-    const currentLevel = Number(choice.currentLevel) || 0;
-    const maxLevel = Math.max(1, Number(choice.maxLevel) || 5);
-    const nextLevel = Math.min(maxLevel, currentLevel + 1);
-
-    // Build pips HTML
-    let pipsHTML = '';
-    for (let p = 1; p <= maxLevel; p++) {
-      if (p <= currentLevel) pipsHTML += '<span class="pip filled"></span>';
-      else if (p === nextLevel) pipsHTML += '<span class="pip next"></span>';
-      else pipsHTML += '<span class="pip"></span>';
+    if (!choice) {
+      btn.style.display = 'none';
+      btn.dataset.skillId = '';
+      btn.dataset.skillIndex = String(i);
+      continue;
     }
-
-    const card = document.createElement('button');
-    card.className = 'skill-card';
-    card.style.setProperty('--accent', accent);
-    card.innerHTML = `
-      <div class="skill-card-header">
-        <span class="skill-card-hotkey">[${i + 1}]</span>
-        <span class="skill-card-rarity">${currentLevel > 0 ? 'UPGRADE' : 'NEW ABILITY'}</span>
-      </div>
-      <div class="skill-card-body">
-        <div class="skill-card-icon">${choice.emoji || '✨'}</div>
-        <div class="skill-card-name">${choice.name || 'Unknown Skill'}</div>
-        <div class="skill-card-pips">${pipsHTML}</div>
-        <div class="skill-card-desc">${choice.description || ''}</div>
-        <div class="skill-card-stat">${choice.stat || `Lv ${currentLevel} → ${nextLevel}`}</div>
-      </div>
-    `;
-
-    card.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      submitSkillChoiceByIndex(i);
-    });
-
-    skillCardWrap.appendChild(card);
+    currentSkillOptions[i] = String(choice.id || '');
+    btn.style.display = 'flex';
+    btn.dataset.skillId = String(choice.id || '');
+    btn.dataset.skillIndex = String(i);
+    const emojiEl = btn.querySelector('[data-role=\"emoji\"]');
+    const nameEl = btn.querySelector('[data-role=\"name\"]');
+    const levelEl = btn.querySelector('[data-role=\"level\"]');
+    const descEl = btn.querySelector('[data-role=\"desc\"]');
+    if (emojiEl) emojiEl.textContent = choice.emoji || '✨';
+    if (nameEl) nameEl.textContent = choice.name || 'Unknown Skill';
+    const currentLevel = Number(choice.currentLevel) || 0;
+    const maxLevel = Math.max(1, Number(choice.maxLevel) || 1);
+    const nextLevel = Math.min(maxLevel, currentLevel + 1);
+    if (levelEl) levelEl.textContent = `Level ${currentLevel} -> ${nextLevel}`;
+    if (descEl) descEl.textContent = choice.description || '';
   }
 }
 
 function clearSkillChoicesUI() {
   currentSkillOptions = [];
-  if (skillCardWrap) skillCardWrap.innerHTML = '';
   setSkillCardOpen(false);
 }
 
 function submitSkillChoiceByIndex(index) {
-  if (index < 0 || index >= currentSkillOptions.length) return false;
+  if (index < 0 || index > 2) return false;
   const skillId = currentSkillOptions[index];
   if (!skillId) return false;
   socket.emit('selectSkill', skillId);
   clearSkillChoicesUI();
   return true;
 }
+
+skillCardButtons.forEach((btn, index) => {
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    submitSkillChoiceByIndex(index);
+  });
+});
 
 if (helpButton) {
   helpButton.addEventListener('click', (e) => {
@@ -1749,11 +1080,9 @@ socket.on('initMap', (mapData) => {
   buildEnvironmentGeometry(mapData.walls, mapData.stealthZones);
 });
 
-socket.on('skillChoices', (data) => {
+socket.on('skillChoices', (choices) => {
   if (!inGame) return;
-  const choices = data && data.choices ? data.choices : [];
-  const classType = data && data.classType ? data.classType : '';
-  renderSkillCards(choices, classType);
+  renderSkillCards(choices);
   if (currentSkillOptions.some((id) => !!id)) {
     setSkillCardOpen(true);
   } else {
@@ -1857,39 +1186,27 @@ socket.on('announcement', (text) => {
 
 socket.on('socialEvent', (payload) => {
   if (!inGame) return;
-  if (!payload || !payload.type || !socialContainer) return;
-
   const el = document.createElement('div');
   el.className = 'social-bubble';
-
-  let lifetimeMs = 3700;
-  let headOffset = 1.2;
   if (payload.type === 'chat') {
     el.classList.add('social-chat');
     el.textContent = payload.text;
   } else if (payload.type === 'emote') {
     el.classList.add('social-emote');
-    el.textContent = EMOTES[payload.emoteId] || '\u{1F4AC}';
-    lifetimeMs = 1800;
-    headOffset = 0.95;
-    triggerEmoteAnimation(payload.playerId, payload.emoteId);
-  } else {
-    return;
+    el.textContent = EMOTES[payload.emoteId] || '💬';
   }
-
   socialContainer.appendChild(el);
-  const entry = { element: el, playerId: payload.playerId, createdAt: Date.now(), headOffset };
+  const entry = { element: el, playerId: payload.playerId, createdAt: Date.now() };
   activeSocials.push(entry);
-
-  const fadeDelay = Math.max(0, lifetimeMs - 300);
+  
   setTimeout(() => {
     el.style.opacity = '0';
     setTimeout(() => {
-      el.remove();
-      const idx = activeSocials.indexOf(entry);
-      if (idx !== -1) activeSocials.splice(idx, 1);
+        el.remove();
+        const idx = activeSocials.indexOf(entry);
+        if (idx !== -1) activeSocials.splice(idx, 1);
     }, 300);
-  }, fadeDelay);
+  }, 3700);
 });
 
 socket.on('combatEvent', (ev) => {
@@ -1991,59 +1308,14 @@ socket.on('gameOver', (data) => {
     });
     
     endgameScreen.classList.add('visible');
-
-    // ── Portal Return Button ────
-    if (portalParams.portal) {
-      const localEntry = playerMeshes[myId];
-      const stats = {
-        classType: selectedCharacter,
-        level: localEntry?.level || 1,
-        xp: localEntry?.xp || 0,
-        isVictory: isVictory,
-      };
-
-      const returnPortalBtn = document.createElement('button');
-      returnPortalBtn.textContent = 'RETURN TO PORTAL';
-      returnPortalBtn.style.cssText = `
-        margin-top: 20px;
-        padding: 12px 32px;
-        font-size: 16px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        background: linear-gradient(135deg, #9b59b6, #3498db);
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-      `;
-      returnPortalBtn.onmouseover = () => returnPortalBtn.style.transform = 'scale(1.05)';
-      returnPortalBtn.onmouseout = () => returnPortalBtn.style.transform = 'scale(1)';
-      returnPortalBtn.onclick = () => {
-        window.location.href = generatePortalExitUrl(stats);
-      };
-      endgameScreen.appendChild(returnPortalBtn);
-    }
-
+    
     // Countdown timer
-    let secondsLeft = portalParams.portal ? 30 : 15; // Longer timer for portal mode
+    let secondsLeft = 15;
     const timerInterval = setInterval(() => {
       secondsLeft--;
       const timerEl = document.getElementById('countdown-timer');
       if (timerEl) timerEl.textContent = secondsLeft;
-      if (secondsLeft <= 0) {
-        clearInterval(timerInterval);
-        // Auto return to portal on timeout
-        if (portalParams.portal) {
-          const localEntry = playerMeshes[myId];
-          window.location.href = generatePortalExitUrl({
-            classType: selectedCharacter,
-            level: localEntry?.level || 1,
-            xp: localEntry?.xp || 0,
-            isVictory: isVictory,
-          });
-        }
-      }
+      if (secondsLeft <= 0) clearInterval(timerInterval);
     }, 1000);
   }, 3000);
 });
@@ -2164,7 +1436,7 @@ socket.on('stateUpdate', (state) => {
   const activeProjIds = new Set();
   for (const id in projData) {
     const proj = projData[id];
-    if (!proj || proj.visible === false) {
+    if (!proj || proj.visible === false || proj.kind === 'mine') {
       if (projMeshes[id]) removeProjMesh(id);
       continue;
     }
@@ -2440,18 +1712,19 @@ window.addEventListener('keydown', (e) => {
   if (!inGame || e.target.id === 'lobby-username' || isHowToOpen) return;
 
   if (e.key === 'Enter') {
-    const chatIsVisible = chatInput.classList.contains('active');
-    if (!chatIsVisible) {
-      focusChatInput();
+    if (!isTyping) {
+      isTyping = true;
+      chatInput.classList.add('active');
+      chatInput.focus();
       for (const k in keys) keys[k] = false;
       emitMoveIntent();
-    } else if (!isTyping) {
-      focusChatInput();
     } else {
+      isTyping = false;
       const text = chatInput.value.trim();
       if (text) socket.emit('sendChat', text);
       chatInput.value = '';
-      hideChatInput();
+      chatInput.classList.remove('active');
+      chatInput.blur();
     }
     e.preventDefault();
     return;
@@ -2459,9 +1732,8 @@ window.addEventListener('keydown', (e) => {
 
   if (isTyping) return;
 
-  const shiftEmoteId = e.shiftKey ? EMOTE_BY_KEY_CODE[e.code] : null;
-  if (shiftEmoteId) {
-      socket.emit('sendEmote', shiftEmoteId);
+  if (e.shiftKey && EMOTES[e.key]) {
+      socket.emit('sendEmote', e.key);
       e.preventDefault();
       return;
   }
@@ -2505,40 +1777,30 @@ function doAttack() {
   socket.emit('attack', { targetX: intersection.x, targetZ: intersection.z });
   if (myId && playerMeshes[myId]) {
     const entry = playerMeshes[myId];
-    // Snap rotation to aim direction immediately on attack
-    const atkDx = intersection.x - entry.mesh.position.x;
-    const atkDz = intersection.z - entry.mesh.position.z;
-    if (atkDx * atkDx + atkDz * atkDz > 0.0001) {
-      const aimRot = Math.atan2(atkDx, atkDz) + Math.PI;
-      entry.targetRotY = aimRot;
-      entry.mesh.rotation.y = aimRot;
+    const m = entry.mesh;
+    // Compute aim angle directly from click position and snap rotation immediately
+    const aimDx = intersection.x - m.position.x;
+    const aimDz = intersection.z - m.position.z;
+    if (aimDx * aimDx + aimDz * aimDz > 0.0001) {
+      const aimRotY = Math.atan2(aimDx, aimDz) + Math.PI;
+      entry.targetRotY = aimRotY;
+      m.rotation.y = aimRotY; // snap immediately so visuals match click
     }
     if (entry.mixer) {
       entry.isAttacking = true;
       entry.attackTimer = ATTACK_ANIM_DURATION;
       fadeToAction(entry, 'Attack', 0.1);
     }
-    // Melee swing visual for close-range classes
+    // Melee swing visual for close-range classes - use aim direction, not lerped rotation
     if (MELEE_CLASSES.has(entry.currentType)) {
-      const m = entry.mesh;
       const color = entry.team === 'red' ? '#ff4444' : '#4488ff';
-      // Use aim direction directly instead of lerped mesh rotation
-      const aimDx = intersection.x - m.position.x;
-      const aimDz = intersection.z - m.position.z;
-      const aimRotY = Math.atan2(aimDx, aimDz) + Math.PI;
-      spawnSwingArc(m.position.x, m.position.z, aimRotY, color);
+      spawnSwingArc(m.position.x, m.position.z, m.rotation.y, color);
     }
   }
 }
 
 window.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
-  const target = e.target;
-  const clickedInput = target && (target.tagName === 'INPUT' || (target.closest && target.closest('#chat-input')));
-  if (inGame && isTyping && !isHowToOpen && !clickedInput) {
-    // Leave typing mode but keep the chat box visible so user can refocus it.
-    releaseChatFocusToGame();
-  }
   if (
     !inGame ||
     isTyping ||
@@ -2547,6 +1809,9 @@ window.addEventListener('mousedown', (e) => {
     e.target.closest('#howto-modal') ||
     e.target.closest('#help-button')
   ) return;
+  // Update mouse coordinates from click event to ensure accurate aim direction
+  mouse.x = (e.clientX / innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
   isMouseHeld = true;
   doAttack();
   if (attackInterval) clearInterval(attackInterval);
@@ -2562,20 +1827,6 @@ window.addEventListener('mouseup', (e) => {
   if (attackInterval) { clearInterval(attackInterval); attackInterval = null; }
 });
 
-if (chatInput) {
-  chatInput.addEventListener('focus', () => {
-    if (inGame && chatInput.classList.contains('active')) {
-      isTyping = true;
-    }
-  });
-
-  chatInput.addEventListener('blur', () => {
-    if (chatInput.classList.contains('active')) {
-      isTyping = false;
-    }
-  });
-}
-
 // ── Lobby / Game Over ───────────────────────────────────────────────────────
 const lobbyEl = document.getElementById('lobby');
 const lobbyInput = document.getElementById('lobby-username');
@@ -2584,209 +1835,14 @@ const hudBasesEl = document.getElementById('hud-bases');
 const minimapCont = document.getElementById('minimap-container');
 const crosshair = document.getElementById('crosshair');
 
-// ── 3D Preview System ──────────────────────────────────────────────────────
-const previewCanvas = document.getElementById('preview-canvas');
-let previewRenderer = null;
-let previewScene = null;
-let previewCamera = null;
-let previewGroup = null;
-let previewAnimationId = null;
-
-function initPreviewRenderer() {
-  if (previewRenderer) return;
-  previewRenderer = new THREE.WebGLRenderer({ canvas: previewCanvas, antialias: true, alpha: true });
-  previewRenderer.setSize(170, 170);
-  previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  previewRenderer.setClearColor(0x000000, 0);
-
-  previewScene = new THREE.Scene();
-  previewScene.add(new THREE.AmbientLight(0xffffff, 0.7));
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.8);
-  dirLight.position.set(3, 5, 4);
-  previewScene.add(dirLight);
-  const rimLight = new THREE.DirectionalLight(0x4488ff, 0.6);
-  rimLight.position.set(-3, 2, -3);
-  previewScene.add(rimLight);
-
-  previewCamera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
-  previewCamera.position.set(0, 1.2, 3.8);
-  previewCamera.lookAt(0, 0.2, 0);
-}
-
-function disposePreviewGroup() {
-  if (!previewGroup) return;
-  previewGroup.traverse((child) => {
-    if (child.isMesh) {
-      if (child.material && !child.material._shared) child.material.dispose();
-    }
-  });
-  previewScene.remove(previewGroup);
-  previewGroup = null;
-}
-
-function showClassPreview(classKey) {
-  initPreviewRenderer();
-  disposePreviewGroup();
-  const data = CLIENT_CLASS_DATA[classKey];
-  if (!data) return;
-  const threeColor = new THREE.Color(data.color);
-  const { group } = createCharacterGroup(data.shape, threeColor);
-  group.scale.setScalar(1.4);
-  previewGroup = group;
-  previewScene.add(previewGroup);
-  startPreviewLoop();
-}
-
-function startPreviewLoop() {
-  if (previewAnimationId) return;
-  function animate() {
-    previewAnimationId = requestAnimationFrame(animate);
-    if (previewGroup) {
-      previewGroup.rotation.y += 0.012;
-      previewGroup.position.y = Math.sin(Date.now() * 0.002) * 0.08;
-    }
-    if (previewRenderer && previewScene && previewCamera) {
-      previewRenderer.render(previewScene, previewCamera);
-    }
-  }
-  animate();
-}
-
-function stopPreviewLoop() {
-  if (previewAnimationId) {
-    cancelAnimationFrame(previewAnimationId);
-    previewAnimationId = null;
-  }
-}
-
-// ── Lobby UI Population ─────────────────────────────────────────────────────
-const detailPanel = document.getElementById('class-detail');
-const detailName = document.getElementById('detail-class-name');
-const detailRole = document.getElementById('detail-class-role');
-const detailAttackType = document.getElementById('detail-attack-type');
-const detailStats = document.getElementById('detail-stats');
-const detailAbilities = document.getElementById('detail-abilities');
-const detailUltimate = document.getElementById('detail-ultimate');
-const enterArenaBtn = document.getElementById('enter-arena-btn');
-
-// Max values for stat bar normalization
-const STAT_MAX = { hp: 160, damage: 22, speed: 1.35, cooldown: 750 };
-
-function populateStats(stats, color) {
-  if (!detailStats) return;
-  const rows = [
-    { label: 'HP', value: stats.hp, max: STAT_MAX.hp, display: stats.hp },
-    { label: 'DMG', value: stats.damage * stats.damageMultiplier, max: STAT_MAX.damage * 1.4, display: Math.round(stats.damage * stats.damageMultiplier * 10) / 10 },
-    { label: 'SPEED', value: stats.speed, max: STAT_MAX.speed, display: (stats.speed * 100).toFixed(0) + '%' },
-    { label: 'RATE', value: (STAT_MAX.cooldown - stats.cooldown + 280), max: STAT_MAX.cooldown, display: stats.cooldown + 'ms' },
-  ];
-  detailStats.innerHTML = rows.map(r => {
-    const pct = Math.min(100, Math.max(5, (r.value / r.max) * 100));
-    return `<div class="stat-row">
-      <span class="stat-label">${r.label}</span>
-      <div class="stat-track"><div class="stat-fill" style="width:${pct}%;background:${color}"></div></div>
-      <span class="stat-value">${r.display}</span>
-    </div>`;
-  }).join('');
-}
-
-function populateAbilities(skills, color) {
-  if (!detailAbilities) return;
-  detailAbilities.innerHTML = skills.map(s => `
-    <div class="ability-card">
-      <div class="ability-emoji">${s.emoji}</div>
-      <div class="ability-name">${s.name}</div>
-      <div class="ability-desc">${s.description}</div>
-      <span class="ability-stat">${s.stat}</span>
-    </div>
-  `).join('');
-}
-
-function populateUltimate(ult, color) {
-  if (!detailUltimate) return;
-  detailUltimate.style.animation = 'none';
-  detailUltimate.offsetHeight; // trigger reflow
-  detailUltimate.style.animation = '';
-  detailUltimate.innerHTML = `
-    <div class="ult-emoji">${ult.emoji}</div>
-    <div class="ult-name">${ult.name}</div>
-    <div class="ult-desc">${ult.description}</div>
-  `;
-}
-
-// ── Character Selection ─────────────────────────────────────────────────────
-const allPickTiles = document.querySelectorAll('.pick-tile');
-
-function selectCharacter(classType, tileEl) {
-  selectedCharacter = classType;
-  localStorage.setItem('arena_character', classType);
-
-  allPickTiles.forEach(t => t.classList.remove('selected'));
-  if (tileEl) tileEl.classList.add('selected');
-
-  const data = CLIENT_CLASS_DATA[classType];
-  if (!data || !detailPanel) return;
-
-  // Show detail panel
-  detailPanel.classList.add('visible');
-  detailPanel.style.setProperty('--class-color', data.color);
-
-  // Populate info
-  if (detailName) detailName.textContent = data.name;
-  if (detailRole) {
-    detailRole.textContent = data.role;
-    detailRole.style.color = data.color;
-  }
-  const atkIcons = { melee: '⚔️ MELEE', ranged: '🏹 RANGED', summon: '👁️ SUMMON' };
-  if (detailAttackType) detailAttackType.textContent = atkIcons[data.stats.attackType] || data.stats.attackType;
-
-  populateStats(data.stats, data.color);
-  populateAbilities(data.skills, data.color);
-  populateUltimate(data.ultimate, data.color);
-  showClassPreview(classType);
-
-  if (enterArenaBtn) {
-    enterArenaBtn.disabled = false;
-    enterArenaBtn.textContent = 'ENTER ARENA';
-  }
-}
-
-// Delegated click on picker grid
-const pickerGrid = document.querySelector('.picker-grid');
-if (pickerGrid) {
-  pickerGrid.addEventListener('click', (e) => {
-    const tile = e.target.closest('.pick-tile');
-    if (!tile) return;
-    const classType = tile.dataset.class;
-    if (classType) selectCharacter(classType, tile);
-  });
-}
-
-function joinGame(classType, username = null) {
-  // Use provided username or get from input
-  let val = username || (lobbyInput ? lobbyInput.value.trim() : '');
-
+function joinGame(classType) {
+  const val = lobbyInput.value.trim();
   if (!val) {
-    if (lobbyInput) {
-      lobbyInput.style.borderColor = '#e74c3c';
-      lobbyInput.focus();
-    }
-    return;
+    lobbyInput.style.borderColor = '#e74c3c';
+    lobbyInput.focus(); return;
   }
-
-  stopPreviewLoop();
-  disposePreviewGroup();
   clearSkillChoicesUI();
-
-  if (lobbyInput) {
-    localStorage.setItem('arena_username', val);
-  }
-
-  // Initialize portal system when entering game
-  if (portalParams.portal) {
-    initPortalSystem();
-  }
-
+  localStorage.setItem('arena_username', val);
   socket.emit('joinGame', { classType, username: val });
   lobbyEl.classList.add('hidden');
   hudStats.classList.add('visible'); hudBasesEl.classList.add('visible');
@@ -2800,40 +1856,48 @@ function joinGame(classType, username = null) {
   emitMoveIntent();
 }
 
-if (enterArenaBtn) {
-  enterArenaBtn.addEventListener('click', () => {
-    if (selectedCharacter) joinGame(selectedCharacter);
-  });
+// ── 2-Step Character Selection ─────────────────────────────────────────────
+const enterArenaBtn = document.getElementById('enter-arena-btn');
+const allClassCards = document.querySelectorAll('.class-card');
+
+function selectCharacter(classType, cardEl) {
+  selectedCharacter = classType;
+  localStorage.setItem('arena_character', classType);
+  allClassCards.forEach(c => c.classList.remove('selected'));
+  cardEl.classList.add('selected');
+  enterArenaBtn.disabled = false;
+  enterArenaBtn.textContent = 'ENTER ARENA';
 }
 
+document.getElementById('btn-warrior').addEventListener('click', function() { selectCharacter('warrior', this); });
+document.getElementById('btn-archer').addEventListener('click', function() { selectCharacter('archer', this); });
+document.getElementById('btn-mage').addEventListener('click', function() { selectCharacter('mage', this); });
+document.getElementById('btn-priest').addEventListener('click', function() { selectCharacter('priest', this); });
+document.getElementById('btn-assassin').addEventListener('click', function() { selectCharacter('assassin', this); });
+document.getElementById('btn-summoner').addEventListener('click', function() { selectCharacter('summoner', this); });
+document.getElementById('btn-chaos').addEventListener('click', function() { selectCharacter('chaos', this); });
+document.getElementById('btn-engineer').addEventListener('click', function() { selectCharacter('engineer', this); });
+document.getElementById('btn-paladin').addEventListener('click', function() { selectCharacter('paladin', this); });
+document.getElementById('btn-necromancer').addEventListener('click', function() { selectCharacter('necromancer', this); });
+
+enterArenaBtn.addEventListener('click', () => {
+  if (selectedCharacter) joinGame(selectedCharacter);
+});
+
 // Save username on input
-if (lobbyInput) {
-  lobbyInput.addEventListener('input', () => {
-    localStorage.setItem('arena_username', lobbyInput.value);
-  });
-}
+lobbyInput.addEventListener('input', () => {
+  localStorage.setItem('arena_username', lobbyInput.value);
+});
 
 // ── Load localStorage Preferences ──────────────────────────────────────────
 (function loadSavedPreferences() {
-  // ── Handle VibejJam Portal Mode ──
-  if (portalParams.portal && portalParams.classType && portalParams.username) {
-    console.log('[Portal] Skipping lobby, joining game with portal params:', portalParams);
-    // Immediately join game with portal parameters
-    // Give socket a moment to connect
-    setTimeout(() => {
-      selectCharacter(portalParams.classType);
-      joinGame(portalParams.classType, portalParams.username);
-    }, 100);
-    return;
-  }
-
   const savedUsername = localStorage.getItem('arena_username');
-  if (savedUsername && lobbyInput) lobbyInput.value = savedUsername;
+  if (savedUsername) lobbyInput.value = savedUsername;
 
   const savedCharacter = localStorage.getItem('arena_character');
   if (savedCharacter) {
-    const tileEl = document.querySelector(`.pick-tile[data-class="${savedCharacter}"]`);
-    if (tileEl) selectCharacter(savedCharacter, tileEl);
+    const cardEl = document.getElementById('btn-' + savedCharacter);
+    if (cardEl) selectCharacter(savedCharacter, cardEl);
   }
 })();
 
@@ -2880,7 +1944,6 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
   const elapsed = clock.getElapsedTime();
-  const nowMs = performance.now();
 
   const halfW = innerWidth / 2;
   const halfH = innerHeight / 2;
@@ -2904,16 +1967,6 @@ function animate() {
     mesh.scale.y += (targetScale - mesh.scale.y) * LERP_FACTOR;
     mesh.scale.z += (targetScale - mesh.scale.z) * LERP_FACTOR;
     mesh.rotation.y = lerpAngle(mesh.rotation.y, targetRotY || 0, LERP_FACTOR);
-    mesh.rotation.x = 0;
-    mesh.rotation.z = 0;
-
-    const emoteMotion = getEmoteMotion(entry, nowMs);
-    if (emoteMotion) {
-      mesh.position.y += emoteMotion.y;
-      mesh.rotation.y += emoteMotion.yaw;
-      mesh.rotation.x += emoteMotion.pitch;
-      mesh.rotation.z += emoteMotion.roll;
-    }
 
     // ── Animation State Machine ──────────────────────────────────────────
     if (entry.mixer) {
@@ -3000,7 +2053,7 @@ function animate() {
     const entry = playerMeshes[soc.playerId];
     if (entry) {
       _projVec.copy(entry.mesh.position);
-      _projVec.y += (entry.targetScale * 1.5) + (soc.headOffset || 1.2);
+      _projVec.y += (entry.targetScale * 1.5) + 1.2;
       _projVec.project(camera);
       if (_projVec.z > 1) {
         soc.element.style.opacity = '0';
@@ -3039,45 +2092,39 @@ function animate() {
     const entry = projMeshes[id];
     entry.mesh.position.x += (entry.targetX - entry.mesh.position.x) * 0.5;
     entry.mesh.position.z += (entry.targetZ - entry.mesh.position.z) * 0.5;
-    // Per-class projectile animations
+    // Rotate projectiles for visual flair
     if (entry.ownerClass === 'archer') {
-      // Arrow points in direction of travel (group's +Z faces forward)
+      // Arrow points in direction of travel
       const dx = entry.targetX - entry.mesh.position.x;
       const dz = entry.targetZ - entry.mesh.position.z;
       if (dx * dx + dz * dz > 0.001) {
-        entry.mesh.rotation.y = Math.atan2(dx, dz);
+        entry.mesh.rotation.x = Math.PI / 2;
+        entry.mesh.rotation.z = Math.atan2(dx, dz);
       }
     } else if (entry.ownerClass === 'mage') {
-      // Inner core tumbles fast, outer shell counter-rotates slowly
-      if (entry.inner) { entry.inner.rotation.x += delta * 8; entry.inner.rotation.y += delta * 12; }
-      if (entry.shell) { entry.shell.rotation.y -= delta * 4; entry.shell.rotation.z += delta * 2; }
-    } else if (entry.ownerClass === 'chaos') {
-      // Outer wobbles erratically, inner counter-rotates
-      if (entry.shell) { entry.shell.rotation.x += delta * 5; entry.shell.rotation.y += Math.sin(elapsed * 12) * delta * 10; entry.shell.rotation.z += delta * 7; }
-      if (entry.inner) { entry.inner.rotation.x -= delta * 7; entry.inner.rotation.y -= delta * 9; entry.inner.rotation.z += delta * 4; }
-      const cs = 1.0 + Math.sin(elapsed * 10) * 0.1;
-      entry.mesh.scale.set(cs, cs, cs);
+      // Mage: fast tumbling icosahedron with pulsing scale
+      entry.mesh.rotation.x += delta * 8;
+      entry.mesh.rotation.z += delta * 5;
+      const pulse = 1 + Math.sin(elapsed * 12 + entry.mesh.position.x * 3) * 0.2;
+      entry.mesh.scale.setScalar(pulse);
     } else if (entry.ownerClass === 'necromancer') {
-      // Slow eerie spin, inner counter-rotates, scale pulses
+      // Necromancer: slow eerie wobble with vertical bob
       entry.mesh.rotation.y += delta * 3;
-      entry.mesh.rotation.x = Math.sin(elapsed * 4) * 0.5;
-      if (entry.inner) { entry.inner.rotation.y -= delta * 2; }
-      const ns = 1.0 + Math.sin(elapsed * 6) * 0.15;
-      entry.mesh.scale.set(ns, ns, ns);
+      entry.mesh.rotation.x = Math.sin(elapsed * 4 + entry.mesh.position.z) * 0.5;
+      entry.mesh.position.y = 0.5 + Math.sin(elapsed * 6 + entry.mesh.position.x) * 0.2;
+    } else if (entry.ownerClass === 'chaos') {
+      // Chaos: erratic jittering rotation
+      entry.mesh.rotation.x += delta * 12;
+      entry.mesh.rotation.y += delta * 9;
+      entry.mesh.rotation.z += delta * 7;
     } else if (entry.ownerClass === 'priest') {
-      // Halo ring spins, core bobs and pulses
-      if (entry.ring) { entry.ring.rotation.z += delta * 5; }
-      entry.mesh.position.y = 0.5 + Math.sin(elapsed * 5 + entry.mesh.position.x) * 0.12;
-      const ps = 1.0 + Math.sin(elapsed * 3) * 0.08;
-      entry.mesh.scale.set(ps, ps, ps);
+      // Priest: gentle floating spin
+      entry.mesh.rotation.y += delta * 4;
+      entry.mesh.position.y = 0.5 + Math.sin(elapsed * 3 + entry.mesh.position.z * 2) * 0.15;
+      const glow = 1 + Math.sin(elapsed * 5) * 0.15;
+      entry.mesh.scale.setScalar(glow);
     } else if (entry.kind === 'summoner_homing') {
-      // Whole group spins fast — fins create pinwheel
       entry.mesh.rotation.y += delta * 10;
-    } else if (entry.kind === 'mine') {
-      // Mine sits on ground, slow spin + pulse
-      entry.mesh.rotation.y += delta * 1.5;
-      const ms = 1.0 + Math.sin(elapsed * 4) * 0.06;
-      entry.mesh.scale.set(ms, ms, ms);
     }
   }
   for (const teamKey in baseMeshes) {
@@ -3266,11 +2313,6 @@ function animate() {
   emitMoveIntent();
   updateAimIntersection();
 
-  // ── Portal Animation ────
-  if (inGame && typeof animateVibeJamPortals === 'function') {
-    animateVibeJamPortals();
-  }
-
   // ── FPS Counter ──
   fpsFrames++;
   const fpsNow = performance.now();
@@ -3293,5 +2335,3 @@ window.addEventListener('resize', () => {
   composer.setSize(innerWidth, innerHeight);
   outlinePass.setSize(innerWidth, innerHeight);
 });
-
-

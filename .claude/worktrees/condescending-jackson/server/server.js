@@ -3,7 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 
 // Config
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 const TICK_RATE = 60;
 const PLAYER_SPEED = 12.5;
 const PLAYER_COLORS_RED  = ['#ff4444', '#ff6655', '#ee3333', '#ff5544'];
@@ -13,11 +13,11 @@ const PLAYER_COLORS_BLUE = ['#4444ff', '#5566ff', '#3333ee', '#4455ff'];
 const ORB_COUNT = 180;
 const MAP_BOUNDARY = 200;
 const ORB_COLLECT_RADIUS = 1.2;
-const EXP_PER_ORB = 5;
-const BASE_EXP_REQUIREMENT = 15;
+const EXP_PER_ORB = 1;
+const BASE_EXP_REQUIREMENT = 100;
 const SCALE_PER_LEVEL = 0.2;
-const KILL_BOUNTY_EXP = 40;
-const BOT_BOUNTY_EXP = 10;
+const KILL_BOUNTY_EXP = 50;
+const BOT_BOUNTY_EXP = 12;
 
 // Combat Config
 const MELEE_DAMAGE = 20;
@@ -49,10 +49,9 @@ const CHAOS_CONFUSE_RANGE = 30;
 const CHAOS_CONFUSE_DURATION_MS = 4000;
 const ENGINEER_MINE_LIFESPAN = 10;
 const TURRET_LIFETIME_TICKS = TICK_RATE * 10;
-const TURRET_FIRE_COOLDOWN_TICKS = Math.round(TICK_RATE * 0.65);
-const TURRET_RANGE = 50;
-const TURRET_PROJECTILE_SPEED = PROJECTILE_SPEED * 1.05;
-const TURRET_PROJECTILE_DAMAGE = 20;
+const TURRET_FIRE_COOLDOWN_TICKS = TICK_RATE;
+const TURRET_RANGE = 45;
+const TURRET_PROJECTILE_SPEED = PROJECTILE_SPEED * 0.9;
 
 const BASE_RADIUS = 5;
 const BASE_MAX_HEALTH = 2000;
@@ -111,7 +110,7 @@ const CLASS_DEFS = {
   },
   summoner: {
     type: 'hexagon', maxHealth: 95, currentHealth: 95, maxMana: 50, currentMana: 50,
-    speedMultiplier: 1.0, attackCooldown: 2000, damageMultiplier: 0.8, baseDamage: 11, attackType: 'summon',
+    speedMultiplier: 1.0, attackCooldown: 450, damageMultiplier: 0.8, baseDamage: 11, attackType: 'ranged',
   },
   chaos: {
     type: 'dodecahedron', maxHealth: 90, currentHealth: 90, maxMana: 50, currentMana: 50,
@@ -133,111 +132,81 @@ const CLASS_DEFS = {
 
 const CLASS_SKILLS = {
   warrior: [
-    { id: 'ironBody', name: 'Fortified Body', emoji: '🛡️', description: 'Reinforced constitution increases max HP.', stat: '+15 HP', maxLevel: 5 },
-    { id: 'cleaveWidth', name: 'Widening Cleave', emoji: '🪓', description: 'Broadens melee arc for wider strikes.', stat: '+15° Arc', maxLevel: 5 },
-    { id: 'groundSlam', name: 'Ground Slam', emoji: '💥', description: 'Attacks briefly stun nearby enemies.', stat: '+0.1s Stun', maxLevel: 5 },
-    { id: 'warCry', name: 'War Cry', emoji: '📣', description: 'Battle fury amplifies all damage dealt.', stat: '+8% Dmg', maxLevel: 5 },
-    { id: 'berserkerRage', name: 'Berserker Rage', emoji: '🔥', description: 'Below 40% HP, gain bonus attack speed.', stat: '+15% AS', maxLevel: 5 },
-    { id: 'titanGrip', name: 'Titan Grip', emoji: '✊', description: 'Extends weapon reach for longer strikes.', stat: '+0.5 Range', maxLevel: 5 },
-    { id: 'shieldWall', name: 'Shield Wall', emoji: '🏰', description: 'Hardened armor reduces incoming damage.', stat: '-5% Dmg Taken', maxLevel: 5 },
+    { id: 'juggernaut', name: 'Juggernaut', emoji: '🛡️', description: 'Increases max HP and body mass.', maxLevel: 5 },
+    { id: 'spikyArmor', name: 'Spiky Armor', emoji: '🦔', description: 'Hardened spikes radiate from your shell.', maxLevel: 5 },
+    { id: 'battleCry', name: 'Battle Cry', emoji: '📣', description: 'Empowers your strikes with raw force.', maxLevel: 5 },
+    { id: 'executioner', name: 'Executioner', emoji: '🪓', description: 'Raises basic attack lethality.', maxLevel: 5 },
+    { id: 'fortressStride', name: 'Fortress Stride', emoji: '👣', description: 'Heavy steps become unexpectedly swift.', maxLevel: 5 },
   ],
   archer: [
-    { id: 'multiShot', name: 'Multi Shot', emoji: '🏹', description: 'Fire additional arrows in a spread pattern.', stat: '+1 Arrow', maxLevel: 5 },
-    { id: 'rapidFire', name: 'Rapid Fire', emoji: '⚡', description: 'Decreases delay between arrow volleys.', stat: '-25ms CD', maxLevel: 5 },
-    { id: 'longRange', name: 'Long Range', emoji: '🎯', description: 'Arrows travel further before fading.', stat: '+20% Range', maxLevel: 5 },
-    { id: 'poisonArrow', name: 'Poison Arrow', emoji: '☠️', description: 'Arrows apply damage over time on hit.', stat: '+2 DPS', maxLevel: 5 },
-    { id: 'evasion', name: 'Evasion', emoji: '💨', description: 'Nimble footwork grants movement speed.', stat: '+4% Speed', maxLevel: 5 },
-    { id: 'headshot', name: 'Headshot', emoji: '🦅', description: 'Precise aim increases base arrow damage.', stat: '+3 Dmg', maxLevel: 5 },
-    { id: 'piercingArrow', name: 'Piercing Arrow', emoji: '🔱', description: 'Arrows pass through enemies on hit.', stat: '+1 Pierce', maxLevel: 5 },
+    { id: 'eagleEye', name: 'Eagle Eye', emoji: '🦅', description: 'Precision instincts sharpen all shots.', maxLevel: 5 },
+    { id: 'quickdraw', name: 'Quickdraw', emoji: '🏹', description: 'Lowers attack delay for faster firing.', maxLevel: 5 },
+    { id: 'piercingShots', name: 'Piercing Shots', emoji: '🎯', description: 'Bolts punch harder through defenses.', maxLevel: 5 },
+    { id: 'windrunner', name: 'Windrunner', emoji: '💨', description: 'Improves movement speed between volleys.', maxLevel: 5 },
+    { id: 'marksmanFocus', name: 'Marksman Focus', emoji: '🔭', description: 'Steady aim increases baseline damage.', maxLevel: 5 },
   ],
   mage: [
-    { id: 'arcaneBlast', name: 'Arcane Blast', emoji: '✨', description: 'Amplified arcane energy increases damage.', stat: '+3 Dmg', maxLevel: 5 },
-    { id: 'spellSpeed', name: 'Spell Speed', emoji: '⚡', description: 'Faster incantations reduce cast delay.', stat: '-30ms CD', maxLevel: 5 },
-    { id: 'blackHoleGrowth', name: 'Singularity', emoji: '🕳️', description: 'Black hole ultimate grows in radius.', stat: '+10% Radius', maxLevel: 5 },
-    { id: 'splashDamage', name: 'Chain Lightning', emoji: '⛓️', description: 'Spells damage nearby enemies on impact.', stat: '+0.5 Splash', maxLevel: 5 },
-    { id: 'manaShield', name: 'Mana Shield', emoji: '🔮', description: 'Arcane barrier increases max health.', stat: '+12 HP', maxLevel: 5 },
-    { id: 'spellPenetration', name: 'Spell Penetration', emoji: '🌌', description: 'Spells bypass enemy resistances.', stat: '+8% Dmg', maxLevel: 5 },
-    { id: 'cometTrail', name: 'Comet Trail', emoji: '☄️', description: 'Projectiles leave damaging zones behind.', stat: '+0.2s Trail', maxLevel: 5 },
+    { id: 'arcaneOverflow', name: 'Arcane Overflow', emoji: '✨', description: 'Arcane output amplifies base damage.', maxLevel: 5 },
+    { id: 'singularityCore', name: 'Singularity Core', emoji: '🕳️', description: 'Your gravity magic grows denser.', maxLevel: 5 },
+    { id: 'manaSurge', name: 'Mana Surge', emoji: '🔋', description: 'Empowers sustained spellcasting.', maxLevel: 5 },
+    { id: 'frostbrand', name: 'Frostbrand', emoji: '❄️', description: 'Infuses attacks with biting arcana.', maxLevel: 5 },
+    { id: 'voidPulse', name: 'Void Pulse', emoji: '🌌', description: 'Dark pulses intensify magical impact.', maxLevel: 5 },
   ],
   priest: [
-    { id: 'healingAura', name: 'Healing Aura', emoji: '💚', description: 'Passively heal nearby allies over time.', stat: '+2 HP/s', maxLevel: 5 },
-    { id: 'blessedSpeed', name: 'Blessed Speed', emoji: '🕊️', description: 'Divine wind quickens your movement.', stat: '+4% Speed', maxLevel: 5 },
-    { id: 'holyShield', name: 'Holy Shield', emoji: '🛡️', description: 'Sacred protection raises max health.', stat: '+15 HP', maxLevel: 5 },
-    { id: 'divineSmite', name: 'Divine Smite', emoji: '⚔️', description: 'Holy wrath increases base damage.', stat: '+2 Dmg', maxLevel: 5 },
-    { id: 'purify', name: 'Purify', emoji: '✝️', description: 'Reduces duration of debuffs on self.', stat: '-15% Debuff', maxLevel: 5 },
-    { id: 'renewingOrbs', name: 'Renewing Orbs', emoji: '🌟', description: 'Healing orbs restore ally health on pass.', stat: '+3 Heal', maxLevel: 5 },
-    { id: 'sanctifiedGround', name: 'Sanctified Ground', emoji: '🙏', description: 'Ultimate burst heal is more powerful.', stat: '+10 Heal', maxLevel: 5 },
+    { id: 'sacredBloom', name: 'Sacred Bloom', emoji: '🌿', description: 'Raises your health pool with holy life.', maxLevel: 5 },
+    { id: 'guardianAura', name: 'Guardian Aura', emoji: '🕊️', description: 'Protective aura enhances resilience.', maxLevel: 5 },
+    { id: 'swiftPrayer', name: 'Swift Prayer', emoji: '🙏', description: 'Blessed focus grants extra movement speed.', maxLevel: 5 },
+    { id: 'renewingLight', name: 'Renewing Light', emoji: '💚', description: 'Healing energies strengthen your form.', maxLevel: 5 },
+    { id: 'blessedShell', name: 'Blessed Shell', emoji: '🔰', description: 'Holy shell reinforces your body.', maxLevel: 5 },
   ],
   assassin: [
-    { id: 'shadowBlade', name: 'Shadow Blade', emoji: '🗡️', description: 'Shadow-forged steel hits harder.', stat: '+3 Dmg', maxLevel: 5 },
-    { id: 'swiftStrike', name: 'Swift Strike', emoji: '⚡', description: 'Faster blade work reduces attack delay.', stat: '-20ms CD', maxLevel: 5 },
-    { id: 'cloakDuration', name: 'Cloak Mastery', emoji: '🌑', description: 'Stealth lasts longer after activation.', stat: '+1s Stealth', maxLevel: 5 },
-    { id: 'backstab', name: 'Backstab', emoji: '🔪', description: 'Attacks from behind deal bonus damage.', stat: '+15% Back', maxLevel: 5 },
-    { id: 'smokeBomb', name: 'Smoke Bomb', emoji: '🌫️', description: 'Ultimate creates a larger smoke zone.', stat: '+0.5 Radius', maxLevel: 5 },
-    { id: 'deadlyPoison', name: 'Deadly Poison', emoji: '☠️', description: 'Blade strikes apply damage over time.', stat: '+2 DPS', maxLevel: 5 },
-    { id: 'phantomStep', name: 'Phantom Step', emoji: '👤', description: 'Spectral agility boosts move speed.', stat: '+5% Speed', maxLevel: 5 },
+    { id: 'shadowstep', name: 'Shadowstep', emoji: '🌑', description: 'Dark footwork boosts movement speed.', maxLevel: 5 },
+    { id: 'poisonEdge', name: 'Poison Edge', emoji: '☠️', description: 'Coated blades increase base damage.', maxLevel: 5 },
+    { id: 'backstabMastery', name: 'Backstab Mastery', emoji: '🗡️', description: 'Ambush style improves strike power.', maxLevel: 5 },
+    { id: 'smokeVeil', name: 'Smoke Veil', emoji: '🌫️', description: 'Veiled posture improves survivability.', maxLevel: 5 },
+    { id: 'bloodlust', name: 'Bloodlust', emoji: '🩸', description: 'Kills fuel relentless offensive flow.', maxLevel: 5 },
   ],
   summoner: [
-    { id: 'strongMinions', name: 'Strong Minions', emoji: '🐺', description: 'Summoned units gain bonus health.', stat: '+8 HP', maxLevel: 5 },
-    { id: 'minionSpeed', name: 'Pack Rush', emoji: '💨', description: 'Minions move faster in pursuit.', stat: '+10% Speed', maxLevel: 5 },
-    { id: 'minionDamage', name: 'Feral Claws', emoji: '🦷', description: 'Summoned units deal more damage.', stat: '+3 Dmg', maxLevel: 5 },
-    { id: 'summonCap', name: 'Horde Master', emoji: '👑', description: 'Increases maximum active summons.', stat: '+1 Max', maxLevel: 5 },
-    { id: 'minionArmor', name: 'Thick Hide', emoji: '🛡️', description: 'Minions take reduced damage.', stat: '-10% Dmg', maxLevel: 5 },
-    { id: 'eliteUpgrade', name: 'Elite Upgrade', emoji: '⭐', description: 'Elite summons gain bonus health.', stat: '+15 HP', maxLevel: 5 },
-    { id: 'soulLink', name: 'Soul Link', emoji: '🔗', description: 'Heal when your summons deal damage.', stat: '+3 Heal', maxLevel: 5 },
+    { id: 'beastMastery', name: 'Beast Mastery', emoji: '🐺', description: 'Companions answer your call with vigor.', maxLevel: 5 },
+    { id: 'packBond', name: 'Pack Bond', emoji: '🤝', description: 'Your summons coordinate more effectively.', maxLevel: 5 },
+    { id: 'spiritFangs', name: 'Spirit Fangs', emoji: '🦷', description: 'Summoned attacks gain base damage.', maxLevel: 5 },
+    { id: 'astralLink', name: 'Astral Link', emoji: '🔗', description: 'Links with summons harden your body.', maxLevel: 5 },
+    { id: 'wildGrowth', name: 'Wild Growth', emoji: '🌱', description: 'Natural momentum increases speed.', maxLevel: 5 },
   ],
   chaos: [
-    { id: 'hexPower', name: 'Hex Power', emoji: '🔮', description: 'Chaotic energy amplifies base damage.', stat: '+3 Dmg', maxLevel: 5 },
-    { id: 'confusionDuration', name: 'Mind Warp', emoji: '🧠', description: 'Confuse effect lasts longer on enemies.', stat: '+0.3s Confuse', maxLevel: 5 },
-    { id: 'chaosSpeed', name: 'Chaos Speed', emoji: '⚡', description: 'Erratic energy boosts movement speed.', stat: '+4% Speed', maxLevel: 5 },
-    { id: 'entropicShield', name: 'Entropic Shield', emoji: '🌀', description: 'Chaotic barrier increases max health.', stat: '+12 HP', maxLevel: 5 },
-    { id: 'curseAmplify', name: 'Curse Amplify', emoji: '💜', description: 'Dark curses amplify all damage dealt.', stat: '+8% Dmg', maxLevel: 5 },
-    { id: 'chaoticSurge', name: 'Chaotic Surge', emoji: '🌊', description: 'Unstable power reduces attack delay.', stat: '-25ms CD', maxLevel: 5 },
-    { id: 'voidRift', name: 'Void Rift', emoji: '🌑', description: 'Ultimate distortion field grows larger.', stat: '+12% Radius', maxLevel: 5 },
+    { id: 'warpedMind', name: 'Warped Mind', emoji: '🧠', description: 'Reality twists empower your output.', maxLevel: 5 },
+    { id: 'entropyField', name: 'Entropy Field', emoji: '🌀', description: 'Chaotic field bolsters survivability.', maxLevel: 5 },
+    { id: 'hexedMomentum', name: 'Hexed Momentum', emoji: '⚡', description: 'Hex currents accelerate your motion.', maxLevel: 5 },
+    { id: 'mirrorPain', name: 'Mirror Pain', emoji: '🪞', description: 'Reflected agony sharpens your attacks.', maxLevel: 5 },
+    { id: 'realityRend', name: 'Reality Rend', emoji: '💥', description: 'Rifts increase your baseline damage.', maxLevel: 5 },
   ],
   engineer: [
-    { id: 'mineLifespan', name: 'Extended Mines', emoji: '⏱️', description: 'Mines persist longer on the field.', stat: '+3s Life', maxLevel: 5 },
-    { id: 'mineDamage', name: 'Explosive Charge', emoji: '💣', description: 'Mines detonate with greater force.', stat: '+5 Dmg', maxLevel: 5 },
-    { id: 'turretDamage', name: 'Turret Upgrade', emoji: '🔫', description: 'Turret projectiles hit harder.', stat: '+3 Dmg', maxLevel: 5 },
-    { id: 'turretDuration', name: 'Fortified Turret', emoji: '🏗️', description: 'Turret stays deployed longer.', stat: '+2s Life', maxLevel: 5 },
-    { id: 'turretFireRate', name: 'Rapid Turret', emoji: '⚙️', description: 'Turret fires rounds more frequently.', stat: '-10% CD', maxLevel: 5 },
-    { id: 'mineCount', name: 'Mine Field', emoji: '💥', description: 'Place additional mines simultaneously.', stat: '+1 Mine', maxLevel: 5 },
-    { id: 'armorPlating', name: 'Armor Plating', emoji: '🧱', description: 'Extra plating increases max health.', stat: '+12 HP', maxLevel: 5 },
+    { id: 'reinforcedPlating', name: 'Reinforced Plating', emoji: '🧱', description: 'Extra armor plating raises max HP.', maxLevel: 5 },
+    { id: 'overclock', name: 'Overclock', emoji: '⚙️', description: 'Mechanical tuning improves speed.', maxLevel: 5 },
+    { id: 'mineExpert', name: 'Mine Expert', emoji: '💣', description: 'Explosive expertise raises base damage.', maxLevel: 5 },
+    { id: 'autoLoader', name: 'Auto Loader', emoji: '🔩', description: 'Auto-loading decreases attack cooldown.', maxLevel: 5 },
+    { id: 'droneMatrix', name: 'Drone Matrix', emoji: '🛠️', description: 'Constructor matrix strengthens chassis.', maxLevel: 5 },
   ],
   paladin: [
-    { id: 'holyStrike', name: 'Holy Strike', emoji: '⚔️', description: 'Divine power increases base damage.', stat: '+3 Dmg', maxLevel: 5 },
-    { id: 'divineHealth', name: 'Divine Health', emoji: '💛', description: 'Blessed vitality raises max health.', stat: '+15 HP', maxLevel: 5 },
-    { id: 'shieldOfFaith', name: 'Shield of Faith', emoji: '🛡️', description: 'Holy ward reduces incoming damage.', stat: '-5% Dmg Taken', maxLevel: 5 },
-    { id: 'crusaderSpeed', name: 'Crusader Speed', emoji: '🏃', description: 'Blessed stride quickens movement.', stat: '+3% Speed', maxLevel: 5 },
-    { id: 'consecration', name: 'Consecration', emoji: '☀️', description: 'Attacks deal splash damage around target.', stat: '+2 Splash', maxLevel: 5 },
-    { id: 'holyRetribution', name: 'Holy Retribution', emoji: '⚡', description: 'Righteous fury amplifies damage.', stat: '+7% Dmg', maxLevel: 5 },
-    { id: 'blessingOfLight', name: 'Blessing of Light', emoji: '✨', description: 'Ultimate divine shield lasts longer.', stat: '+0.5s Shield', maxLevel: 5 },
+    { id: 'holyFortitude', name: 'Holy Fortitude', emoji: '⛪', description: 'Divine blessing raises max HP.', maxLevel: 5 },
+    { id: 'radiantStrike', name: 'Radiant Strike', emoji: '☀️', description: 'Holy light empowers your attacks.', maxLevel: 5 },
+    { id: 'divineWrath', name: 'Divine Wrath', emoji: '⚔️', description: 'Righteous fury amplifies damage.', maxLevel: 5 },
+    { id: 'crusaderMarch', name: 'Crusader March', emoji: '🏃', description: 'Blessed stride increases speed.', maxLevel: 5 },
+    { id: 'sacredArmor', name: 'Sacred Armor', emoji: '🛡️', description: 'Holy armor reinforces your body.', maxLevel: 5 },
   ],
   necromancer: [
-    { id: 'soulDrain', name: 'Soul Drain', emoji: '💚', description: 'Attacks steal life from enemies.', stat: '+2 Lifesteal', maxLevel: 5 },
-    { id: 'curseOfDecay', name: 'Curse of Decay', emoji: '☠️', description: 'Projectiles apply damage over time.', stat: '+2 DPS', maxLevel: 5 },
-    { id: 'darkPower', name: 'Dark Power', emoji: '💀', description: 'Necrotic energy increases base damage.', stat: '+3 Dmg', maxLevel: 5 },
-    { id: 'undeadResilience', name: 'Undead Resilience', emoji: '🦴', description: 'Unholy constitution raises max health.', stat: '+12 HP', maxLevel: 5 },
-    { id: 'deathHaste', name: 'Death Haste', emoji: '👻', description: 'Spectral speed boosts movement.', stat: '+4% Speed', maxLevel: 5 },
-    { id: 'witherTouch', name: 'Wither Touch', emoji: '🖤', description: 'Withering curse amplifies all damage.', stat: '+8% Dmg', maxLevel: 5 },
-    { id: 'soulExplosion', name: 'Soul Explosion', emoji: '💥', description: 'Ultimate soul drain grows in radius.', stat: '+10% Radius', maxLevel: 5 },
+    { id: 'soulHarvest', name: 'Soul Harvest', emoji: '👻', description: 'Harvested souls bolster survivability.', maxLevel: 5 },
+    { id: 'deathMark', name: 'Death Mark', emoji: '💀', description: 'Cursed strikes increase base damage.', maxLevel: 5 },
+    { id: 'witherGrasp', name: 'Wither Grasp', emoji: '🦴', description: 'Necrotic grip raises base damage.', maxLevel: 5 },
+    { id: 'darkPact', name: 'Dark Pact', emoji: '🖤', description: 'Unholy pact amplifies damage output.', maxLevel: 5 },
+    { id: 'spectralHaste', name: 'Spectral Haste', emoji: '👤', description: 'Ghostly speed enhances movement.', maxLevel: 5 },
   ],
 };
 
 // Server Setup
 const app = express();
-const path = require('path');
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
-
-// ── Serve Static Client Files ────
-const clientDistPath = path.join(__dirname, '../client/dist');
-app.use(express.static(clientDistPath));
-
-// Serve index.html for all routes (SPA fallback)
-app.get('*', (req, res) => {
-  res.sendFile(path.join(clientDistPath, 'index.html'));
-});
 
 // Game State
 let gameState = 'playing'; // 'playing' or 'gameOver'
@@ -379,30 +348,19 @@ function getSkillDefForPlayer(player, skillId) {
 
 function drawSkillChoices(player, count = 3) {
   const classSkills = CLASS_SKILLS[player && player.classType] || [];
-  const lockedSkillIds = Object.keys(player.skills || {});
-  const isLocked = lockedSkillIds.length >= 3;
+  const available = classSkills.filter((skill) => getPlayerSkillLevel(player, skill.id) < skill.maxLevel);
+  if (available.length === 0) return [];
 
-  let pool;
-  if (isLocked) {
-    // After 3 unique skills chosen: only offer the locked 3
-    pool = classSkills.filter(s => lockedSkillIds.includes(s.id) && getPlayerSkillLevel(player, s.id) < s.maxLevel);
-  } else {
-    // First 3 picks: offer from all 7
-    pool = classSkills.filter(s => getPlayerSkillLevel(player, s.id) < s.maxLevel);
-  }
-  if (pool.length === 0) return [];
-
-  for (let i = pool.length - 1; i > 0; i--) {
+  for (let i = available.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+    [available[i], available[j]] = [available[j], available[i]];
   }
 
-  return pool.slice(0, Math.min(count, pool.length)).map((skill) => ({
+  return available.slice(0, Math.min(count, available.length)).map((skill) => ({
     id: skill.id,
     name: skill.name,
     emoji: skill.emoji,
     description: skill.description,
-    stat: skill.stat || '',
     maxLevel: skill.maxLevel,
     currentLevel: getPlayerSkillLevel(player, skill.id),
   }));
@@ -410,81 +368,64 @@ function drawSkillChoices(player, count = 3) {
 
 function getExpRequirementForLevel(level) {
   const lv = Math.max(1, Number(level) || 1);
-  return Math.floor(BASE_EXP_REQUIREMENT * Math.pow(lv, 1.8));
+  return Math.floor(BASE_EXP_REQUIREMENT * Math.pow(lv, 1.5));
 }
 
 function applySelectedSkillEffect(player, skillId) {
-  const level = getPlayerSkillLevel(player, skillId);
   switch (skillId) {
-    // ── HP skills ──
-    case 'ironBody': player.maxHealth += 15; player.currentHealth += 15; break;
-    case 'holyShield': case 'divineHealth': player.maxHealth += 15; player.currentHealth += 15; break;
-    case 'manaShield': case 'entropicShield': case 'undeadResilience': case 'armorPlating':
-      player.maxHealth += 12; player.currentHealth += 12; break;
-    // ── Base damage skills ──
-    case 'headshot': case 'arcaneBlast': case 'shadowBlade': case 'hexPower':
-    case 'darkPower': case 'holyStrike':
-      player.baseDamage += 3; break;
-    case 'divineSmite': player.baseDamage += 2; break;
-    // ── Damage multiplier skills ──
-    case 'warCry': case 'spellPenetration': case 'curseAmplify': case 'witherTouch':
-      player.damageMultiplier += 0.08; break;
-    case 'holyRetribution': player.damageMultiplier += 0.07; break;
-    // ── Speed skills ──
-    case 'evasion': case 'blessedSpeed': case 'chaosSpeed': case 'deathHaste':
-      player.speedMultiplier += 0.04; break;
-    case 'phantomStep': player.speedMultiplier += 0.05; break;
-    case 'crusaderSpeed': player.speedMultiplier += 0.03; break;
-    // ── Cooldown skills ──
-    case 'rapidFire': player.attackCooldown = Math.max(120, player.attackCooldown - 25); break;
-    case 'spellSpeed': player.attackCooldown = Math.max(120, player.attackCooldown - 30); break;
-    case 'swiftStrike': player.attackCooldown = Math.max(120, player.attackCooldown - 20); break;
-    case 'chaoticSurge': player.attackCooldown = Math.max(120, player.attackCooldown - 25); break;
-    // ── Warrior mechanical ──
-    case 'cleaveWidth': player.bonusMeleeArc = (player.bonusMeleeArc || 0) + (Math.PI / 12); break;
-    case 'titanGrip': player.bonusMeleeRange = (player.bonusMeleeRange || 0) + 0.5; break;
-    case 'shieldWall': player.damageReduction = Math.min(0.35, (player.damageReduction || 0) + 0.05); break;
-    case 'groundSlam': break; // checked in combat via skill level
-    case 'berserkerRage': break; // checked in combat via skill level
-    // ── Archer mechanical ──
-    case 'multiShot': break; // checked in attack handler via skill level
-    case 'longRange': break; // checked in projectile creation via skill level
-    case 'poisonArrow': break; // checked on hit via skill level
-    case 'piercingArrow': break; // checked on hit via skill level
-    // ── Mage mechanical ──
-    case 'splashDamage': break; // checked on projectile hit
-    case 'blackHoleGrowth': break; // checked in ultimate
-    case 'cometTrail': break; // checked on projectile hit
-    // ── Priest mechanical ──
-    case 'healingAura': break; // ticked in game loop
-    case 'purify': break; // checked when debuffs applied
-    case 'renewingOrbs': break; // checked on projectile pass
-    case 'sanctifiedGround': break; // checked in ultimate
-    // ── Assassin mechanical ──
-    case 'cloakDuration': break; // checked in stealth
-    case 'backstab': break; // checked in melee combat
-    case 'smokeBomb': break; // checked in ultimate
-    case 'deadlyPoison': break; // checked on hit
-    // ── Summoner mechanical ──
-    case 'strongMinions': case 'minionSpeed': case 'minionDamage':
-    case 'summonCap': case 'minionArmor': case 'eliteUpgrade': case 'soulLink':
-      break; // applied at summon time or checked in combat
-    // ── Chaos mechanical ──
-    case 'confusionDuration': break; // checked in ultimate
-    case 'voidRift': break; // checked in ultimate
-    // ── Engineer mechanical ──
-    case 'mineLifespan': case 'mineDamage': case 'turretDamage':
-    case 'turretDuration': case 'turretFireRate': case 'mineCount':
-      break; // applied at mine/turret creation time
-    // ── Paladin mechanical ──
-    case 'shieldOfFaith': player.damageReduction = Math.min(0.35, (player.damageReduction || 0) + 0.05); break;
-    case 'consecration': break; // checked in melee combat
-    case 'blessingOfLight': break; // checked in ultimate
-    // ── Necromancer mechanical ──
-    case 'soulDrain': break; // checked on hit
-    case 'curseOfDecay': break; // checked on hit
-    case 'soulExplosion': break; // checked in ultimate
-    default: break;
+    case 'juggernaut':
+    case 'reinforcedPlating':
+    case 'guardianAura':
+    case 'blessedShell':
+    case 'astralLink':
+    case 'entropyField':
+    case 'droneMatrix':
+    case 'smokeVeil':
+    case 'sacredBloom':
+    case 'holyFortitude':
+    case 'sacredArmor':
+    case 'soulHarvest':
+      player.maxHealth += 12;
+      player.currentHealth += 12;
+      break;
+    case 'executioner':
+    case 'marksmanFocus':
+    case 'arcaneOverflow':
+    case 'poisonEdge':
+    case 'spiritFangs':
+    case 'realityRend':
+    case 'mineExpert':
+    case 'radiantStrike':
+    case 'deathMark':
+    case 'witherGrasp':
+      player.baseDamage += 2;
+      break;
+    case 'battleCry':
+    case 'backstabMastery':
+    case 'mirrorPain':
+    case 'eagleEye':
+    case 'voidPulse':
+    case 'divineWrath':
+    case 'darkPact':
+      player.damageMultiplier += 0.07;
+      break;
+    case 'fortressStride':
+    case 'windrunner':
+    case 'swiftPrayer':
+    case 'shadowstep':
+    case 'wildGrowth':
+    case 'hexedMomentum':
+    case 'overclock':
+    case 'crusaderMarch':
+    case 'spectralHaste':
+      player.speedMultiplier += 0.03;
+      break;
+    case 'quickdraw':
+    case 'autoLoader':
+      player.attackCooldown = Math.max(120, player.attackCooldown - 20);
+      break;
+    default:
+      break;
   }
   if (player.currentHealth > player.maxHealth) player.currentHealth = player.maxHealth;
 }
@@ -504,7 +445,7 @@ function beginSkillChoiceIfNeeded(player) {
 
   player.isChoosingSkill = true;
   player.currentSkillChoices = choices.map((choice) => choice.id);
-  io.to(player.id).emit('skillChoices', { choices, classType: player.classType });
+  io.to(player.id).emit('skillChoices', choices);
 }
 
 function grantExp(player, amount) {
@@ -556,7 +497,7 @@ function getProjectileDamage(proj) {
   const ownerBaseDamage = Number(proj.ownerBaseDamage) || RANGED_DAMAGE;
   if (proj.kind === 'mine') return Math.max(20, ownerBaseDamage * 1.25) * (proj.ownerDamageMult || 1);
   if (proj.kind === 'summoner_homing') return ownerBaseDamage * (proj.ownerDamageMult || 1);
-  if (proj.kind === 'turret_shot') return TURRET_PROJECTILE_DAMAGE * (proj.ownerDamageMult || 1);
+  if (proj.kind === 'turret_shot') return 14 * (proj.ownerDamageMult || 1);
   return ownerBaseDamage * (proj.ownerDamageMult || 1);
 }
 
@@ -598,7 +539,7 @@ function spawnTurret(owner) {
     ownerTeam: owner.team,
     x: clampToMap(owner.x, 1),
     z: clampToMap(owner.z, 1),
-    scale: 1.35,
+    scale: 1,
     color: owner.color,
     lifeTicks: TURRET_LIFETIME_TICKS,
     fireCooldown: 0,
@@ -741,9 +682,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('sendEmote', (emoteId) => {
-    const normalizedId = String(emoteId || '');
-    if (normalizedId !== '1' && normalizedId !== '2' && normalizedId !== '3') return;
-    io.emit('socialEvent', { type: 'emote', playerId: socket.id, emoteId: normalizedId });
+    io.emit('socialEvent', { type: 'emote', playerId: socket.id, emoteId });
   });
 
   socket.on('selectSkill', (skillId) => {
@@ -896,62 +835,30 @@ io.on('connection', (socket) => {
       }
       emittedCast = true;
     } else if (p.classType === 'summoner') {
-      // Ult: maintain exactly 1 elite melee + 1 elite ranged (refresh existing, respawn missing)
-      const ultSummons = [
-        { summonType: 'elite_melee', maxHealth: 80, speed: 0.6, scale: 1.2, attackRange: BOT_MELEE_RANGE },
-        { summonType: 'elite_ranged', maxHealth: 55, speed: 0.5, scale: 1.0, attackRange: 12 },
-      ];
-
-      const elitesByType = {};
-      for (const def of ultSummons) elitesByType[def.summonType] = [];
-      for (const bot of bots) {
-        if (!bot.isSummon || bot.ownerId !== socket.id || bot.currentHealth <= 0) continue;
-        if (elitesByType[bot.summonType]) elitesByType[bot.summonType].push(bot);
-      }
-
-      for (let i = 0; i < ultSummons.length; i++) {
-        const def = ultSummons[i];
-        const typedElites = elitesByType[def.summonType] || [];
-
-        // Enforce non-stacking: keep one per elite type, remove extras.
-        if (typedElites.length > 1) {
-          for (let j = 1; j < typedElites.length; j++) {
-            typedElites[j].currentHealth = 0;
-          }
-        }
-
-        const activeElite = typedElites[0];
-        if (activeElite) {
-          // Refresh existing elite if present.
-          activeElite.maxHealth = def.maxHealth;
-          activeElite.currentHealth = def.maxHealth;
-          activeElite.speed = def.speed;
-          activeElite.scale = def.scale;
-          activeElite.attackRange = def.attackRange;
-          activeElite.attackCooldown = 0;
-          activeElite.ownerId = socket.id;
-          activeElite.ownerTeam = p.team;
-          activeElite.team = p.team;
-          continue;
-        }
-
-        // Missing elite: respawn it near the summoner.
-        const angle = (Math.PI * 2 * i) / ultSummons.length + Math.random() * 0.5;
-        const offsetDist = 2.2 + Math.random() * 1.0;
+      for (let i = 0; i < SUMMONER_PET_COUNT; i++) {
+        const angle = (Math.PI * 2 * i) / SUMMONER_PET_COUNT + Math.random() * 0.5;
+        const offsetDist = 2.2 + Math.random() * 1.2;
         const summonX = clampToMap(p.x + Math.cos(angle) * offsetDist, BOT_COLLIDER_HALF_SIZE);
         const summonZ = clampToMap(p.z + Math.sin(angle) * offsetDist, BOT_COLLIDER_HALF_SIZE);
         const resolved = resolveWallCollision(p.x, p.z, summonX, summonZ, BOT_COLLIDER_HALF_SIZE);
         bots.push({
-          id: `bot_${botIdCounter++}`, type: 'bot',
+          id: `bot_${botIdCounter++}`,
+          type: 'bot',
           x: clampToMap(resolved.x, BOT_COLLIDER_HALF_SIZE),
           z: clampToMap(resolved.z, BOT_COLLIDER_HALF_SIZE),
-          maxHealth: def.maxHealth, currentHealth: def.maxHealth,
-          speed: def.speed, attackCooldown: 0, scale: def.scale,
-          color: 'grey', team: p.team, lastAttackerId: null,
-          ownerId: socket.id, ownerTeam: p.team,
-          isSummon: true, summonType: def.summonType,
-          attackRange: def.attackRange,
-          respawnOnDeath: false, bountyExp: 0,
+          maxHealth: 40,
+          currentHealth: 40,
+          speed: 0.7,
+          attackCooldown: 0,
+          scale: 0.85,
+          color: 'grey',
+          team: p.team,
+          lastAttackerId: null,
+          ownerId: socket.id,
+          ownerTeam: p.team,
+          isSummon: true,
+          respawnOnDeath: false,
+          bountyExp: 0,
         });
       }
       emittedCast = true;
@@ -1022,8 +929,7 @@ io.on('connection', (socket) => {
     if (!p || p.permaDead || p.isStunned) return;
 
     const now = Date.now();
-    const rageMult = p.rageActive ? (1 - getPlayerSkillLevel(p, 'berserkerRage') * 0.15) : 1;
-    if (now - p.lastAttackTime < p.attackCooldown * rageMult) return;
+    if (now - p.lastAttackTime < p.attackCooldown) return;
     p.lastAttackTime = now;
     p.lastCombatActionTime = now;
     p.isStealthed = false;
@@ -1037,82 +943,47 @@ io.on('connection', (socket) => {
     const dirX = dx / dist; const dirZ = dz / dist;
 
     const classDef = CLASS_DEFS[p.classType] || {};
-    if (classDef.attackType === 'summon') {
-      // Summoner: spawn a weak melee minion at click direction
-      const maxSummons = 6 + getPlayerSkillLevel(p, 'summonCap');
-      const activeSummons = bots.filter(b => b.ownerId === socket.id && b.isSummon && b.currentHealth > 0);
-      if (activeSummons.length >= maxSummons) return;
-      const spawnDist = 1.5;
-      const summonX = clampToMap(p.x + dirX * spawnDist, BOT_COLLIDER_HALF_SIZE);
-      const summonZ = clampToMap(p.z + dirZ * spawnDist, BOT_COLLIDER_HALF_SIZE);
-      const resolved = resolveWallCollision(p.x, p.z, summonX, summonZ, BOT_COLLIDER_HALF_SIZE);
-      const hpBonus = getPlayerSkillLevel(p, 'strongMinions') * 8;
-      const spdBonus = 1 + getPlayerSkillLevel(p, 'minionSpeed') * 0.1;
-      bots.push({
-        id: `bot_${botIdCounter++}`, type: 'bot',
-        x: clampToMap(resolved.x, BOT_COLLIDER_HALF_SIZE),
-        z: clampToMap(resolved.z, BOT_COLLIDER_HALF_SIZE),
-        maxHealth: 25 + hpBonus, currentHealth: 25 + hpBonus, speed: 0.65 * spdBonus,
-        attackCooldown: 0, scale: 0.6, color: 'grey',
-        team: p.team, lastAttackerId: null,
-        ownerId: socket.id, ownerTeam: p.team,
-        isSummon: true, summonType: 'basic',
-        bonusDamage: getPlayerSkillLevel(p, 'minionDamage') * 3,
-        damageReduction: getPlayerSkillLevel(p, 'minionArmor') * 0.1,
-        respawnOnDeath: false, bountyExp: 0,
-      });
-    } else if (classDef.attackType === 'melee') {
-      const meleeRange = (MELEE_RANGE + (p.bonusMeleeRange || 0)) * p.scale;
-      const meleeArc = MELEE_ARC + (p.bonusMeleeArc || 0);
-      const stunLevel = getPlayerSkillLevel(p, 'groundSlam');
-      const consecLevel = getPlayerSkillLevel(p, 'consecration');
+    if (classDef.attackType === 'melee') {
       for (const eid in players) {
         if (eid === socket.id) continue;
         const enemy = players[eid];
         if (enemy.team === p.team || enemy.permaDead || enemy.isInvincible) continue;
         const edx = enemy.x - p.x; const edz = enemy.z - p.z;
         const eDist = Math.sqrt(edx * edx + edz * edz);
-        if (eDist > meleeRange || eDist === 0) continue;
+        if (eDist > MELEE_RANGE * p.scale || eDist === 0) continue;
         const dot = (edx * dirX + edz * dirZ) / eDist;
-        if (Math.acos(Math.max(-1, Math.min(1, dot))) <= meleeArc / 2) {
+        if (Math.acos(Math.max(-1, Math.min(1, dot))) <= MELEE_ARC / 2) {
           let dmg = p.baseDamage * p.damageMultiplier;
           if (p.hasBossBuff) dmg *= 2.0;
-          const dr = enemy.damageReduction || 0;
-          enemy.currentHealth -= dmg * (1 - dr);
+          enemy.currentHealth -= dmg;
           enemy.lastAttackerId = socket.id;
-          io.emit('combatEvent', { type: 'damage', x: enemy.x, z: enemy.z, amount: Math.round(dmg * (1 - dr)), color: enemy.color });
-          if (stunLevel > 0) { enemy.isStunned = true; setTimeout(() => { enemy.isStunned = false; }, 200 + stunLevel * 100); }
-          if (consecLevel > 0) {
-            for (const eid2 in players) {
-              if (eid2 === socket.id || eid2 === eid) continue;
-              const e2 = players[eid2];
-              if (e2.team === p.team || e2.permaDead || e2.isInvincible) continue;
-              const sd = Math.sqrt((e2.x - enemy.x) ** 2 + (e2.z - enemy.z) ** 2);
-              if (sd <= 2.5) { e2.currentHealth -= consecLevel * 2; io.emit('combatEvent', { type: 'damage', x: e2.x, z: e2.z, amount: consecLevel * 2, color: e2.color }); }
-            }
-          }
+          io.emit('combatEvent', { type: 'damage', x: enemy.x, z: enemy.z, amount: Math.round(dmg), color: enemy.color });
         }
       }
       for (const bot of bots) {
-        const bdx = bot.x - p.x; const bdz = bot.z - p.z;
+        const bdx = bot.x - p.x;
+        const bdz = bot.z - p.z;
         const bDist = Math.sqrt(bdx * bdx + bdz * bdz);
-        if (bDist > meleeRange || bDist === 0) continue;
+        if (bDist > MELEE_RANGE * p.scale || bDist === 0) continue;
         const dot = (bdx * dirX + bdz * dirZ) / bDist;
-        if (Math.acos(Math.max(-1, Math.min(1, dot))) <= meleeArc / 2) {
+        if (Math.acos(Math.max(-1, Math.min(1, dot))) <= MELEE_ARC / 2) {
           let dmg = p.baseDamage * p.damageMultiplier;
           if (p.hasBossBuff) dmg *= 2.0;
           applyBotDamage(bot, dmg, socket.id);
         }
       }
+      // Damage the boss if in range
       if (boss && boss.currentHealth > 0) {
-        const bdx = boss.x - p.x; const bdz = boss.z - p.z;
+        const bdx = boss.x - p.x;
+        const bdz = boss.z - p.z;
         const bDist = Math.sqrt(bdx * bdx + bdz * bdz);
-        if (bDist <= meleeRange + boss.radius && bDist > 0) {
+        if (bDist <= MELEE_RANGE * p.scale + boss.radius && bDist > 0) {
           const dot = (bdx * dirX + bdz * dirZ) / bDist;
-          if (Math.acos(Math.max(-1, Math.min(1, dot))) <= meleeArc / 2) {
+          if (Math.acos(Math.max(-1, Math.min(1, dot))) <= MELEE_ARC / 2) {
             let dmg = MELEE_BASE_DAMAGE * p.damageMultiplier;
             if (p.hasBossBuff) dmg *= 2.0;
-            boss.currentHealth -= dmg; boss.lastAttackerId = socket.id;
+            boss.currentHealth -= dmg;
+            boss.lastAttackerId = socket.id;
             io.emit('combatEvent', { type: 'damage', x: boss.x, z: boss.z, amount: Math.round(dmg), color: '#9933ff' });
           }
         }
@@ -1122,9 +993,9 @@ io.on('connection', (socket) => {
         if (base.team === p.team || base.currentHealth <= 0) continue;
         const bdx = base.x - p.x; const bdz = base.z - p.z;
         const bDist = Math.sqrt(bdx * bdx + bdz * bdz);
-        if (bDist > (meleeRange + BASE_RADIUS) || bDist === 0) continue;
+        if (bDist > (MELEE_RANGE * p.scale + BASE_RADIUS) || bDist === 0) continue;
         const dot = (bdx * dirX + bdz * dirZ) / bDist;
-        if (Math.acos(Math.max(-1, Math.min(1, dot))) <= meleeArc / 2) {
+        if (Math.acos(Math.max(-1, Math.min(1, dot))) <= MELEE_ARC / 2) {
           const dmg = MELEE_BASE_DAMAGE * p.damageMultiplier;
           base.currentHealth = Math.max(0, base.currentHealth - dmg);
           const baseColor = base.team === 'red' ? '#ff4444' : '#4488ff';
@@ -1132,45 +1003,25 @@ io.on('connection', (socket) => {
         }
       }
     } else {
+      const projId = `proj_${projIdCounter++}`;
       if (p.classType === 'engineer') {
-        const mineLife = ENGINEER_MINE_LIFESPAN + (getPlayerSkillLevel(p, 'mineLifespan') * 3);
-        const projId = `proj_${projIdCounter++}`;
         projectiles[projId] = {
           id: projId, kind: 'mine', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerClass: p.classType, ownerDamageMult: p.damageMultiplier,
-          ownerBaseDamage: p.baseDamage + (getPlayerSkillLevel(p, 'mineDamage') * 5),
-          x: p.x, z: p.z, vx: 0, vz: 0, life: mineLife,
+          ownerBaseDamage: p.baseDamage,
+          x: p.x, z: p.z, vx: 0, vz: 0, life: ENGINEER_MINE_LIFESPAN,
+        };
+      } else if (p.classType === 'summoner') {
+        projectiles[projId] = {
+          id: projId, kind: 'summoner_homing', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerClass: p.classType, ownerDamageMult: p.damageMultiplier,
+          ownerBaseDamage: p.baseDamage,
+          x: p.x, z: p.z, vx: dirX * PROJECTILE_SPEED * 0.75, vz: dirZ * PROJECTILE_SPEED * 0.75, life: 2.0,
         };
       } else {
-        // Fire main projectile
-        const lifeBonus = p.classType === 'archer' ? (1 + getPlayerSkillLevel(p, 'longRange') * 0.2) : 1;
-        const projId = `proj_${projIdCounter++}`;
         projectiles[projId] = {
           id: projId, kind: 'normal', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerClass: p.classType, ownerDamageMult: p.damageMultiplier,
           ownerBaseDamage: p.baseDamage,
-          x: p.x, z: p.z, vx: dirX * PROJECTILE_SPEED, vz: dirZ * PROJECTILE_SPEED, life: PROJECTILE_LIFESPAN * lifeBonus,
-          pierceCount: getPlayerSkillLevel(p, 'piercingArrow'),
-          splashRadius: getPlayerSkillLevel(p, 'splashDamage') * 0.5,
-          poisonDps: getPlayerSkillLevel(p, 'poisonArrow') * 2 + getPlayerSkillLevel(p, 'deadlyPoison') * 2 + getPlayerSkillLevel(p, 'curseOfDecay') * 2,
-          lifestealPerHit: getPlayerSkillLevel(p, 'soulDrain') * 2,
+          x: p.x, z: p.z, vx: dirX * PROJECTILE_SPEED, vz: dirZ * PROJECTILE_SPEED, life: PROJECTILE_LIFESPAN,
         };
-        // Multi Shot: fire extra arrows at spread angles
-        const extraArrows = getPlayerSkillLevel(p, 'multiShot');
-        if (extraArrows > 0 && p.classType === 'archer') {
-          for (let i = 1; i <= extraArrows; i++) {
-            const spreadAngle = (Math.PI / 12) * i; // 15 degree spread per arrow
-            for (const sign of [-1, 1]) {
-              const angle = Math.atan2(dirZ, dirX) + sign * spreadAngle;
-              const sdx = Math.cos(angle); const sdz = Math.sin(angle);
-              const eid = `proj_${projIdCounter++}`;
-              projectiles[eid] = {
-                id: eid, kind: 'normal', ownerId: socket.id, ownerTeam: p.team, ownerColor: p.color, ownerClass: p.classType, ownerDamageMult: p.damageMultiplier,
-                ownerBaseDamage: p.baseDamage,
-                x: p.x, z: p.z, vx: sdx * PROJECTILE_SPEED, vz: sdz * PROJECTILE_SPEED, life: PROJECTILE_LIFESPAN * lifeBonus,
-                pierceCount: getPlayerSkillLevel(p, 'piercingArrow'),
-              };
-            }
-          }
-        }
       }
     }
   });
@@ -1211,36 +1062,6 @@ setInterval(() => {
     const resolved = resolveWallCollision(p.x, p.z, intendedX, intendedZ, colliderHalf);
     p.x = clampToMap(resolved.x, colliderHalf);
     p.z = clampToMap(resolved.z, colliderHalf);
-
-    // Process DoTs
-    if (p.dots && p.dots.length > 0) {
-      for (let di = p.dots.length - 1; di >= 0; di--) {
-        const dot = p.dots[di];
-        p.currentHealth -= dot.dps * delta;
-        dot.remaining -= delta;
-        if (dot.remaining <= 0) p.dots.splice(di, 1);
-      }
-    }
-
-    // Healing Aura (priest)
-    const healAuraLvl = getPlayerSkillLevel(p, 'healingAura');
-    if (healAuraLvl > 0 && !p.permaDead) {
-      for (const aid in players) {
-        if (aid === id) continue;
-        const ally = players[aid];
-        if (ally.team !== p.team || ally.permaDead) continue;
-        if ((ally.x - p.x) ** 2 + (ally.z - p.z) ** 2 <= 64) { // 8 unit radius
-          ally.currentHealth = Math.min(ally.maxHealth, ally.currentHealth + healAuraLvl * 2 * delta);
-        }
-      }
-    }
-
-    // Berserker Rage (warrior) — reduce attack cooldown when low HP
-    if (getPlayerSkillLevel(p, 'berserkerRage') > 0 && p.currentHealth <= p.maxHealth * 0.4) {
-      p.rageActive = true;
-    } else {
-      p.rageActive = false;
-    }
   }
 
   for (const bot of bots) {
@@ -1274,19 +1095,15 @@ setInterval(() => {
     }
 
     if (closestTarget && closestDistSq <= BOT_AGGRO_RANGE * BOT_AGGRO_RANGE) {
-      // Ranged summons stop at their attack range, others chase into melee
-      const stopRange = bot.attackRange || BOT_MELEE_RANGE;
-      if (closestDistSq > stopRange * stopRange * 0.8) {
-        const targetEntity = closestTarget.entity;
-        const dist = Math.sqrt(closestDistSq) || 1;
-        const dirX = (targetEntity.x - bot.x) / dist;
-        const dirZ = (targetEntity.z - bot.z) / dist;
-        const intendedX = clampToMap(bot.x + dirX * bot.speed, BOT_COLLIDER_HALF_SIZE);
-        const intendedZ = clampToMap(bot.z + dirZ * bot.speed, BOT_COLLIDER_HALF_SIZE);
-        const resolved = resolveWallCollision(bot.x, bot.z, intendedX, intendedZ, BOT_COLLIDER_HALF_SIZE);
-        bot.x = clampToMap(resolved.x, BOT_COLLIDER_HALF_SIZE);
-        bot.z = clampToMap(resolved.z, BOT_COLLIDER_HALF_SIZE);
-      }
+      const targetEntity = closestTarget.entity;
+      const dist = Math.sqrt(closestDistSq) || 1;
+      const dirX = (targetEntity.x - bot.x) / dist;
+      const dirZ = (targetEntity.z - bot.z) / dist;
+      const intendedX = clampToMap(bot.x + dirX * bot.speed, BOT_COLLIDER_HALF_SIZE);
+      const intendedZ = clampToMap(bot.z + dirZ * bot.speed, BOT_COLLIDER_HALF_SIZE);
+      const resolved = resolveWallCollision(bot.x, bot.z, intendedX, intendedZ, BOT_COLLIDER_HALF_SIZE);
+      bot.x = clampToMap(resolved.x, BOT_COLLIDER_HALF_SIZE);
+      bot.z = clampToMap(resolved.z, BOT_COLLIDER_HALF_SIZE);
     } else if (bot.ownerId && players[bot.ownerId] && !players[bot.ownerId].permaDead) {
       const owner = players[bot.ownerId];
       const dX = owner.x - bot.x;
@@ -1306,33 +1123,17 @@ setInterval(() => {
     const targetEntity = closestTarget.entity;
     const meleeDx = targetEntity.x - bot.x;
     const meleeDz = targetEntity.z - bot.z;
-    const targetDistSq = meleeDx * meleeDx + meleeDz * meleeDz;
-    const botRange = bot.attackRange || BOT_MELEE_RANGE;
-    if (bot.attackCooldown <= 0 && targetDistSq <= botRange * botRange) {
-      if (bot.summonType === 'elite_ranged') {
-        // Ranged summon fires a projectile
-        const tDist = Math.sqrt(targetDistSq) || 1;
-        const dX = meleeDx / tDist; const dZ = meleeDz / tDist;
-        const projId = `proj_${projIdCounter++}`;
-        projectiles[projId] = {
-          id: projId, kind: 'summoner_homing', ownerId: bot.ownerId, ownerTeam: bot.team,
-          ownerColor: bot.team === 'red' ? '#ff6666' : '#6688ff', ownerClass: 'summoner',
-          ownerDamageMult: 1.0, ownerBaseDamage: 10,
-          x: bot.x, z: bot.z, vx: dX * PROJECTILE_SPEED * 0.6, vz: dZ * PROJECTILE_SPEED * 0.6, life: 1.5,
-        };
-        bot.attackCooldown = BOT_ATTACK_COOLDOWN_TICKS + 10;
-      } else {
-        if (closestTarget.type === 'player') {
-          if (!targetEntity.isInvincible) {
-            targetEntity.currentHealth -= BOT_MELEE_DAMAGE;
-            targetEntity.lastAttackerId = bot.ownerId || null;
-            io.emit('combatEvent', { type: 'damage', x: targetEntity.x, z: targetEntity.z, amount: BOT_MELEE_DAMAGE, color: targetEntity.color });
-          }
-        } else {
-          applyBotDamage(targetEntity, BOT_MELEE_DAMAGE, bot.ownerId || null);
+    if (bot.attackCooldown <= 0 && (meleeDx * meleeDx + meleeDz * meleeDz) <= BOT_MELEE_RANGE * BOT_MELEE_RANGE) {
+      if (closestTarget.type === 'player') {
+        if (!targetEntity.isInvincible) {
+          targetEntity.currentHealth -= BOT_MELEE_DAMAGE;
+          targetEntity.lastAttackerId = bot.ownerId || null;
+          io.emit('combatEvent', { type: 'damage', x: targetEntity.x, z: targetEntity.z, amount: BOT_MELEE_DAMAGE, color: targetEntity.color });
         }
-        bot.attackCooldown = BOT_ATTACK_COOLDOWN_TICKS;
+      } else {
+        applyBotDamage(targetEntity, BOT_MELEE_DAMAGE, bot.ownerId || null);
       }
+      bot.attackCooldown = BOT_ATTACK_COOLDOWN_TICKS;
     }
   }
 
@@ -1477,38 +1278,14 @@ setInterval(() => {
       if (pid === proj.ownerId || p.team === proj.ownerTeam || p.permaDead || p.isInvincible) continue;
       if ((proj.x-p.x)**2 + (proj.z-p.z)**2 < (PROJECTILE_RADIUS * p.scale)**2) {
         const dmg = getProjectileDamage(proj);
-        const dr = p.damageReduction || 0;
-        p.currentHealth -= dmg * (1 - dr);
+        p.currentHealth -= dmg;
         p.lastAttackerId = proj.ownerId;
+        // Track damage dealt
         if (proj.ownerId && players[proj.ownerId]) {
           players[proj.ownerId].damageDealt = (players[proj.ownerId].damageDealt || 0) + dmg;
-          // Lifesteal
-          if (proj.lifestealPerHit > 0) {
-            const owner = players[proj.ownerId];
-            owner.currentHealth = Math.min(owner.maxHealth, owner.currentHealth + proj.lifestealPerHit);
-          }
         }
-        io.emit('combatEvent', { type: 'damage', x: p.x, z: p.z, amount: Math.round(dmg * (1 - dr)), color: p.color, targetId: p.id });
-        // Splash damage to nearby enemies
-        if (proj.splashRadius > 0) {
-          for (const sid in players) {
-            if (sid === proj.ownerId || sid === pid) continue;
-            const sp = players[sid];
-            if (sp.team === proj.ownerTeam || sp.permaDead || sp.isInvincible) continue;
-            if ((sp.x - p.x) ** 2 + (sp.z - p.z) ** 2 <= proj.splashRadius * proj.splashRadius) {
-              const splashDmg = dmg * 0.4;
-              sp.currentHealth -= splashDmg;
-              io.emit('combatEvent', { type: 'damage', x: sp.x, z: sp.z, amount: Math.round(splashDmg), color: sp.color });
-            }
-          }
-        }
-        // Poison/DoT
-        if (proj.poisonDps > 0) {
-          p.dots = p.dots || [];
-          p.dots.push({ dps: proj.poisonDps, remaining: 2.0, attackerId: proj.ownerId });
-        }
-        // Piercing: don't destroy, decrement
-        if (proj.pierceCount > 0) { proj.pierceCount--; } else { delete projectiles[projId]; destroyed = true; break; }
+        io.emit('combatEvent', { type: 'damage', x: p.x, z: p.z, amount: Math.round(dmg), color: p.color, targetId: p.id });
+        delete projectiles[projId]; destroyed = true; break;
       }
     }
     if (destroyed) continue;
@@ -1733,9 +1510,8 @@ setInterval(() => {
       x: pr.x,
       z: pr.z,
       ownerColor: pr.ownerColor,
-      ownerClass: pr.ownerClass,
       kind: pr.kind || 'normal',
-      visible: true,
+      visible: pr.kind !== 'mine',
     }])),
     bots: bots.map((bot) => ({
       id: bot.id,
