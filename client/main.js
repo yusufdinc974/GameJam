@@ -232,11 +232,10 @@ function parseUrlParams() {
 }
 
 let portalParams = parseUrlParams();
-let portalSystem = null;
-// Portal exit URL - use window.location.origin for production compatibility
-let portalExitUrl = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-  ? 'https://vibej.am/portal/2026'
-  : 'https://vibej.am/portal/2026';
+const PORTAL_EXIT_URL = 'https://vibejam.cc/portal/2026';
+let startPortalGroup = null, startPortalBox = null, startPortalParticles = null;
+let exitPortalGroup = null, exitPortalBox = null, exitPortalParticles = null;
+let portalsReady = false;
 
 // ── Socket.io ───────────────────────────────────────────────────────────────
 const socket = io(SERVER_URL, {
@@ -295,54 +294,169 @@ composer.addPass(outlinePass);
 const gammaPass = new ShaderPass(GammaCorrectionShader);
 composer.addPass(gammaPass);
 
-// ── Portal System Initialization ────────────────────────────────────────────
-function generatePortalExitUrl(stats = {}) {
-  const params = new URLSearchParams({
-    username: (lobbyInput?.value || localStorage.getItem('arena_username') || 'Player'),
-    ref: portalParams.ref || '',
-    xp: stats.xp || 0,
-    level: stats.level || 1,
-    kills: stats.kills || 0,
-    survived_time: stats.survivedTime || 0,
-    ...stats,
-  });
-  return portalExitUrl + '?' + params.toString();
+// ── Portal System ───────────────────────────────────────────────────────────
+function buildPortalExitUrl() {
+  const params = new URLSearchParams();
+  params.set('portal', 'true');
+  params.set('username', lobbyInput?.value || localStorage.getItem('arena_username') || 'Player');
+  params.set('color', 'white');
+  params.set('speed', '5');
+  params.set('ref', window.location.origin);
+  // Forward any existing params
+  const current = new URLSearchParams(window.location.search);
+  for (const [k, v] of current) {
+    if (!params.has(k)) params.set(k, v);
+  }
+  return PORTAL_EXIT_URL + '?' + params.toString();
 }
 
-function initPortalSystem() {
-  if (typeof initVibeJamPortals !== 'function') {
-    console.warn('[Portal] VibejJam portal script not loaded yet');
-    return;
+function buildReturnUrl() {
+  const refUrl = portalParams.ref;
+  if (!refUrl) return null;
+  let url = refUrl;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url;
+  // Forward all current params except ref
+  const current = new URLSearchParams(window.location.search);
+  const newParams = new URLSearchParams();
+  for (const [k, v] of current) {
+    if (k !== 'ref') newParams.set(k, v);
+  }
+  const s = newParams.toString();
+  return url + (s ? '?' + s : '');
+}
+
+function createPortal(color, position, labelText) {
+  const group = new THREE.Group();
+  group.position.copy(position);
+
+  // Torus ring
+  const torusGeo = new THREE.TorusGeometry(5, 0.6, 16, 64);
+  const torusMat = new THREE.MeshPhongMaterial({
+    color: color,
+    emissive: color,
+    emissiveIntensity: 0.8,
+    transparent: true,
+    opacity: 0.85,
+  });
+  group.add(new THREE.Mesh(torusGeo, torusMat));
+
+  // Inner disc
+  const discGeo = new THREE.CircleGeometry(4.2, 32);
+  const discMat = new THREE.MeshBasicMaterial({
+    color: color,
+    transparent: true,
+    opacity: 0.35,
+    side: THREE.DoubleSide,
+  });
+  group.add(new THREE.Mesh(discGeo, discMat));
+
+  // Label
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#' + new THREE.Color(color).getHexString();
+  ctx.font = 'bold 36px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(labelText, 256, 44);
+  const tex = new THREE.CanvasTexture(canvas);
+  const labelGeo = new THREE.PlaneGeometry(10, 1.5);
+  const labelMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
+  const labelMesh = new THREE.Mesh(labelGeo, labelMat);
+  labelMesh.position.y = 7;
+  group.add(labelMesh);
+
+  // Particles
+  const pCount = 300;
+  const pGeo = new THREE.BufferGeometry();
+  const positions = new Float32Array(pCount * 3);
+  const colors = new Float32Array(pCount * 3);
+  const baseColor = new THREE.Color(color);
+  for (let i = 0; i < pCount * 3; i += 3) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 5 + (Math.random() - 0.5) * 2;
+    positions[i] = Math.cos(angle) * radius;
+    positions[i + 1] = Math.sin(angle) * radius;
+    positions[i + 2] = (Math.random() - 0.5) * 2;
+    colors[i] = baseColor.r * (0.8 + Math.random() * 0.2);
+    colors[i + 1] = baseColor.g * (0.8 + Math.random() * 0.2);
+    colors[i + 2] = baseColor.b * (0.8 + Math.random() * 0.2);
+  }
+  pGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  pGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const pMat = new THREE.PointsMaterial({ size: 0.3, vertexColors: true, transparent: true, opacity: 0.6 });
+  const particleSystem = new THREE.Points(pGeo, pMat);
+  group.add(particleSystem);
+
+  scene.add(group);
+  const box = new THREE.Box3().setFromObject(group);
+  return { group, box, particleSystem };
+}
+
+function initPortals() {
+  // Exit portal - always created (green), placed near map edge
+  const exitPos = new THREE.Vector3(0, 6, -185);
+  const exit = createPortal(0x00ff00, exitPos, 'VIBE JAM PORTAL');
+  exitPortalGroup = exit.group;
+  exitPortalBox = exit.box;
+  exitPortalParticles = exit.particleSystem;
+
+  // Start portal - only if player arrived via ?portal=true (red)
+  if (portalParams.portal && portalParams.ref) {
+    const startPos = new THREE.Vector3(0, 6, 0); // At spawn point
+    const start = createPortal(0xff0000, startPos, 'RETURN PORTAL');
+    startPortalGroup = start.group;
+    startPortalBox = start.box;
+    startPortalParticles = start.particleSystem;
   }
 
-  try {
-    portalSystem = initVibeJamPortals({
-      scene: scene,
-      getPlayer: () => {
-        const localEntry = playerMeshes[myId];
-        return localEntry ? localEntry.mesh : null;
-      },
-      spawnPoint: { x: 0, y: 0, z: 0 },
-      exitPosition: { x: -200, y: 200, z: -300 },
-      onPortalExit: (exitData) => {
-        // Collect player stats for exit
-        const localEntry = playerMeshes[myId];
-        const exitStats = {
-          classType: selectedCharacter,
-          ...exitData,
-        };
+  portalsReady = true;
+  console.log('[Portal] Portals initialized');
+}
 
-        if (localEntry && localEntry.level) {
-          exitStats.level = localEntry.level;
-          exitStats.xp = localEntry.xp || 0;
-        }
+function animatePortals() {
+  if (!portalsReady) return;
+  const t = Date.now() * 0.001;
 
-        window.location.href = generatePortalExitUrl(exitStats);
-      }
-    });
-    console.log('[Portal] Portal system initialized');
-  } catch (e) {
-    console.error('[Portal] Failed to initialize:', e);
+  // Animate exit portal particles
+  if (exitPortalParticles) {
+    const pos = exitPortalParticles.geometry.attributes.position.array;
+    for (let i = 0; i < pos.length; i += 3) {
+      pos[i + 1] += 0.04 * Math.sin(t + i);
+    }
+    exitPortalParticles.geometry.attributes.position.needsUpdate = true;
+    exitPortalGroup.rotation.y += 0.003;
+  }
+
+  // Animate start portal particles
+  if (startPortalParticles) {
+    const pos = startPortalParticles.geometry.attributes.position.array;
+    for (let i = 0; i < pos.length; i += 3) {
+      pos[i + 1] += 0.04 * Math.sin(t + i);
+    }
+    startPortalParticles.geometry.attributes.position.needsUpdate = true;
+    startPortalGroup.rotation.y += 0.003;
+  }
+
+  // Check player collision with portals
+  const localEntry = myId ? playerMeshes[myId] : null;
+  if (!localEntry) return;
+  const playerPos = localEntry.mesh.position;
+
+  // Exit portal collision
+  if (exitPortalGroup) {
+    const dist = playerPos.distanceTo(exitPortalGroup.position);
+    if (dist < 6) {
+      window.location.href = buildPortalExitUrl();
+    }
+  }
+
+  // Start portal collision (return to previous game)
+  if (startPortalGroup && portalParams.ref) {
+    const dist = playerPos.distanceTo(startPortalGroup.position);
+    if (dist < 6) {
+      const returnUrl = buildReturnUrl();
+      if (returnUrl) window.location.href = returnUrl;
+    }
   }
 }
 
@@ -2021,55 +2135,38 @@ socket.on('gameOver', (data) => {
     endgameScreen.classList.add('visible');
 
     // ── Portal Return Button ────
-    if (portalParams.portal) {
-      const localEntry = playerMeshes[myId];
-      const stats = {
-        classType: selectedCharacter,
-        level: localEntry?.level || 1,
-        xp: localEntry?.xp || 0,
-        isVictory: isVictory,
-      };
-
-      const returnPortalBtn = document.createElement('button');
-      returnPortalBtn.textContent = 'RETURN TO PORTAL';
-      returnPortalBtn.style.cssText = `
-        margin-top: 20px;
-        padding: 12px 32px;
-        font-size: 16px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        background: linear-gradient(135deg, #9b59b6, #3498db);
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-      `;
-      returnPortalBtn.onmouseover = () => returnPortalBtn.style.transform = 'scale(1.05)';
-      returnPortalBtn.onmouseout = () => returnPortalBtn.style.transform = 'scale(1)';
-      returnPortalBtn.onclick = () => {
-        window.location.href = generatePortalExitUrl(stats);
-      };
-      endgameScreen.appendChild(returnPortalBtn);
-    }
+    const returnPortalBtn = document.createElement('button');
+    returnPortalBtn.textContent = 'VIBE JAM PORTAL';
+    returnPortalBtn.style.cssText = `
+      margin-top: 20px;
+      padding: 12px 32px;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      background: linear-gradient(135deg, #00cc44, #00ff66);
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    `;
+    returnPortalBtn.onmouseover = () => returnPortalBtn.style.transform = 'scale(1.05)';
+    returnPortalBtn.onmouseout = () => returnPortalBtn.style.transform = 'scale(1)';
+    returnPortalBtn.onclick = () => {
+      window.location.href = buildPortalExitUrl();
+    };
+    endgameScreen.appendChild(returnPortalBtn);
 
     // Countdown timer
-    let secondsLeft = portalParams.portal ? 30 : 15; // Longer timer for portal mode
+    let secondsLeft = portalParams.portal ? 30 : 15;
     const timerInterval = setInterval(() => {
       secondsLeft--;
       const timerEl = document.getElementById('countdown-timer');
       if (timerEl) timerEl.textContent = secondsLeft;
       if (secondsLeft <= 0) {
         clearInterval(timerInterval);
-        // Auto return to portal on timeout
         if (portalParams.portal) {
-          const localEntry = playerMeshes[myId];
-          window.location.href = generatePortalExitUrl({
-            classType: selectedCharacter,
-            level: localEntry?.level || 1,
-            xp: localEntry?.xp || 0,
-            isVictory: isVictory,
-          });
+          window.location.href = buildPortalExitUrl();
         }
       }
     }, 1000);
@@ -2836,9 +2933,7 @@ function joinGame(classType, username = null) {
   }
 
   // Initialize portal system when entering game
-  if (portalParams.portal) {
-    initPortalSystem();
-  }
+  initPortals();
 
   socket.emit('joinGame', { classType, username: val });
   lobbyEl.classList.add('hidden');
@@ -2870,13 +2965,17 @@ if (lobbyInput) {
 // ── Load localStorage Preferences ──────────────────────────────────────────
 (function loadSavedPreferences() {
   // ── Handle VibejJam Portal Mode ──
-  if (portalParams.portal && portalParams.classType && portalParams.username) {
-    console.log('[Portal] Skipping lobby, joining game with portal params:', portalParams);
-    // Immediately join game with portal parameters
-    // Give socket a moment to connect
+  // When ?portal=true, instantly load into game (no lobby screen)
+  if (portalParams.portal) {
+    const classKeys = Object.keys(CLIENT_CLASS_DATA);
+    const classType = portalParams.classType && CLIENT_CLASS_DATA[portalParams.classType]
+      ? portalParams.classType
+      : classKeys[Math.floor(Math.random() * classKeys.length)];
+    const username = portalParams.username || 'Traveler';
+    console.log('[Portal] Skipping lobby, joining as', classType, username);
     setTimeout(() => {
-      selectCharacter(portalParams.classType);
-      joinGame(portalParams.classType, portalParams.username);
+      selectCharacter(classType);
+      joinGame(classType, username);
     }, 100);
     return;
   }
@@ -3329,8 +3428,8 @@ function animate() {
   updateAimIntersection();
 
   // ── Portal Animation ────
-  if (inGame && typeof animateVibeJamPortals === 'function') {
-    animateVibeJamPortals();
+  if (inGame && portalsReady) {
+    animatePortals();
   }
 
   // ── FPS Counter ──
