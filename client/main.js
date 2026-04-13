@@ -60,7 +60,8 @@ function preloadCharacterModel() {
 // ── Config ──────────────────────────────────────────────────────────────────
 // Auto-detect server URL based on current location
 const SERVER_URL = window.location.origin;
-const LERP_FACTOR = 0.15;
+const LERP_FACTOR = 0.25;              // Increased for smoother interpolation at 20 TPS network rate
+const PROJ_LERP = 0.4;                 // Faster lerp for projectiles
 const FLOOR_SIZE = 400;
 const GRID_DIVISIONS = 80;
 const WORLD_BOUNDARY = FLOOR_SIZE / 2;
@@ -238,7 +239,12 @@ let portalExitUrl = typeof window !== 'undefined' && window.location.hostname !=
   : 'https://vibej.am/portal/2026';
 
 // ── Socket.io ───────────────────────────────────────────────────────────────
-const socket = io(SERVER_URL);
+const socket = io(SERVER_URL, {
+  transports: ['websocket'],           // Skip polling, connect via WebSocket immediately
+  upgrade: false,                      // Don't try to upgrade from polling
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+});
 socket.on('assignId', (id) => { myId = id; });
 
 // ── Three.js Scene ──────────────────────────────────────────────────────────
@@ -2177,6 +2183,9 @@ socket.on('stateUpdate', (state) => {
       } else {
         projMeshes[id].targetX = proj.x;
         projMeshes[id].targetZ = proj.z;
+        // Store velocity for client-side prediction between server updates
+        projMeshes[id].vx = proj.vx || 0;
+        projMeshes[id].vz = proj.vz || 0;
       }
     }
   }
@@ -2899,11 +2908,14 @@ function animate() {
   for (const id in playerMeshes) {
     const entry = playerMeshes[id];
     const { mesh, targetPos, targetScale, targetRotY } = entry;
-    mesh.position.lerp(targetPos, LERP_FACTOR);
+    // Local player gets faster interpolation for more responsive feel
+    const isLocal = (id === myId);
+    const lerpSpeed = isLocal ? 0.4 : LERP_FACTOR;
+    mesh.position.lerp(targetPos, lerpSpeed);
     mesh.scale.x += (targetScale - mesh.scale.x) * LERP_FACTOR;
     mesh.scale.y += (targetScale - mesh.scale.y) * LERP_FACTOR;
     mesh.scale.z += (targetScale - mesh.scale.z) * LERP_FACTOR;
-    mesh.rotation.y = lerpAngle(mesh.rotation.y, targetRotY || 0, LERP_FACTOR);
+    mesh.rotation.y = lerpAngle(mesh.rotation.y, targetRotY || 0, isLocal ? 0.35 : LERP_FACTOR);
     mesh.rotation.x = 0;
     mesh.rotation.z = 0;
 
@@ -3037,8 +3049,13 @@ function animate() {
   dustMesh.instanceMatrix.needsUpdate = true;
   for (const id in projMeshes) {
     const entry = projMeshes[id];
-    entry.mesh.position.x += (entry.targetX - entry.mesh.position.x) * 0.5;
-    entry.mesh.position.z += (entry.targetZ - entry.mesh.position.z) * 0.5;
+    // Client-side prediction: extrapolate position using velocity between server ticks
+    if (entry.vx !== undefined && entry.vz !== undefined && (entry.vx !== 0 || entry.vz !== 0)) {
+      entry.targetX += entry.vx * delta;
+      entry.targetZ += entry.vz * delta;
+    }
+    entry.mesh.position.x += (entry.targetX - entry.mesh.position.x) * PROJ_LERP;
+    entry.mesh.position.z += (entry.targetZ - entry.mesh.position.z) * PROJ_LERP;
     // Per-class projectile animations
     if (entry.ownerClass === 'archer') {
       // Arrow points in direction of travel (group's +Z faces forward)

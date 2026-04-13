@@ -5,6 +5,9 @@ const { Server } = require('socket.io');
 // Config
 const PORT = process.env.PORT || 3000;
 const TICK_RATE = 60;
+const NET_SEND_RATE = 20;              // Network broadcasts per second (separated from game tick)
+const NET_SEND_INTERVAL = Math.round(TICK_RATE / NET_SEND_RATE); // Send every N ticks
+let tickCounter = 0;
 const PLAYER_SPEED = 12.5;
 const PLAYER_COLORS_RED  = ['#ff4444', '#ff6655', '#ee3333', '#ff5544'];
 const PLAYER_COLORS_BLUE = ['#4444ff', '#5566ff', '#3333ee', '#4455ff'];
@@ -228,7 +231,15 @@ const CLASS_SKILLS = {
 const app = express();
 const path = require('path');
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+  transports: ['websocket'],          // Skip HTTP long-polling, go straight to WebSocket
+  pingInterval: 10000,
+  pingTimeout: 5000,
+  perMessageDeflate: {                 // Compress messages
+    threshold: 256,
+  },
+});
 
 // ── Serve Static Client Files ────
 const clientDistPath = path.join(__dirname, '../client/dist');
@@ -245,6 +256,8 @@ const players = {};
 const orbs = {};
 const projectiles = {};
 const blackHoles = {};
+let orbsDirty = true;  // Track orb changes to avoid sending static data every frame
+let cachedOrbSnapshot = {};
 const bots = [];
 const turrets = [];
 let orbIdCounter = 0;
@@ -328,6 +341,7 @@ function spawnOrb() {
   const id = `orb_${orbIdCounter++}`;
   const pos = getOpenMapPosition(0.2, { avoidBases: false });
   orbs[id] = { id, x: pos.x, y: 0.5, z: pos.z };
+  orbsDirty = true;
 }
 
 const BOT_VARIANTS = [
@@ -1443,6 +1457,7 @@ setInterval(() => {
       const orb = orbs[orbId];
       if ((p.x-orb.x)**2 + (p.z-orb.z)**2 < collectRadius**2) {
         delete orbs[orbId];
+        orbsDirty = true;
         grantExp(p, EXP_PER_ORB);
         spawnOrb();
       }
@@ -1725,44 +1740,62 @@ setInterval(() => {
     }
   }
 
-  io.emit('stateUpdate', {
-    players: playerSnapshot,
-    orbs: Object.fromEntries(Object.entries(orbs).map(([id, o]) => [id, { id: o.id, x: o.x, y: o.y, z: o.z }])),
-    projectiles: Object.fromEntries(Object.entries(projectiles).map(([id, pr]) => [id, {
-      id: pr.id,
-      x: pr.x,
-      z: pr.z,
-      ownerColor: pr.ownerColor,
-      ownerClass: pr.ownerClass,
-      kind: pr.kind || 'normal',
-      visible: true,
-    }])),
-    bots: bots.map((bot) => ({
-      id: bot.id,
-      type: bot.type,
-      x: bot.x,
-      z: bot.z,
-      maxHealth: bot.maxHealth,
-      currentHealth: bot.currentHealth,
-      scale: bot.scale,
-      color: bot.color,
-      team: bot.team || null,
-      ownerId: bot.ownerId || null,
-      ownerTeam: bot.ownerTeam || null,
-      isSummon: !!bot.isSummon,
-    })),
-    turrets: turrets.map((turret) => ({
-      id: turret.id,
-      x: turret.x,
-      z: turret.z,
-      scale: turret.scale,
-      color: turret.color,
-      ownerTeam: turret.ownerTeam,
-      ownerId: turret.ownerId,
-    })),
-    bases: { red: { ...bases.red }, blue: { ...bases.blue } },
-    boss: boss ? { id: boss.id, maxHealth: boss.maxHealth, currentHealth: boss.currentHealth, x: boss.x, z: boss.z, radius: boss.radius } : null,
-  });
+  // ── Network Broadcast (throttled to NET_SEND_RATE) ──
+  tickCounter++;
+  if (tickCounter >= NET_SEND_INTERVAL) {
+    tickCounter = 0;
+
+    // Cache orb snapshot only when orbs change
+    if (orbsDirty) {
+      cachedOrbSnapshot = {};
+      for (const id in orbs) {
+        const o = orbs[id];
+        cachedOrbSnapshot[id] = { id: o.id, x: o.x, y: o.y, z: o.z };
+      }
+      orbsDirty = false;
+    }
+
+    io.emit('stateUpdate', {
+      players: playerSnapshot,
+      orbs: cachedOrbSnapshot,
+      projectiles: Object.fromEntries(Object.entries(projectiles).map(([id, pr]) => [id, {
+        id: pr.id,
+        x: pr.x,
+        z: pr.z,
+        vx: pr.vx,            // Send velocity for client-side prediction
+        vz: pr.vz,
+        ownerColor: pr.ownerColor,
+        ownerClass: pr.ownerClass,
+        kind: pr.kind || 'normal',
+        visible: true,
+      }])),
+      bots: bots.map((bot) => ({
+        id: bot.id,
+        type: bot.type,
+        x: bot.x,
+        z: bot.z,
+        maxHealth: bot.maxHealth,
+        currentHealth: bot.currentHealth,
+        scale: bot.scale,
+        color: bot.color,
+        team: bot.team || null,
+        ownerId: bot.ownerId || null,
+        ownerTeam: bot.ownerTeam || null,
+        isSummon: !!bot.isSummon,
+      })),
+      turrets: turrets.map((turret) => ({
+        id: turret.id,
+        x: turret.x,
+        z: turret.z,
+        scale: turret.scale,
+        color: turret.color,
+        ownerTeam: turret.ownerTeam,
+        ownerId: turret.ownerId,
+      })),
+      bases: { red: { ...bases.red }, blue: { ...bases.blue } },
+      boss: boss ? { id: boss.id, maxHealth: boss.maxHealth, currentHealth: boss.currentHealth, x: boss.x, z: boss.z, radius: boss.radius } : null,
+    });
+  }
 }, 1000 / TICK_RATE);
 
 // ── Boss Timer (1 second tick) ────────────────────
