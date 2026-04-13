@@ -1550,7 +1550,29 @@ const damageContainer = document.getElementById('damage-container');
 const chatInput = document.getElementById('chat-input');
 const socialContainer = document.getElementById('social-container');
 const fpsCounter = document.getElementById('fps-counter');
+const pingCounter = document.getElementById('ping-counter');
 let fpsFrames = 0, fpsLastTime = performance.now();
+let currentPing = 0;
+
+// ── Ping Measurement ──
+// Use socket.io volatile emit for ping-pong measurement
+let pingStartTime = 0;
+setInterval(() => {
+  if (!inGame) return;
+  pingStartTime = performance.now();
+  socket.volatile.emit('ping_check');
+}, 2000); // Measure every 2 seconds
+
+socket.on('pong_check', () => {
+  currentPing = Math.round(performance.now() - pingStartTime);
+  if (pingCounter) {
+    pingCounter.textContent = currentPing + ' ms';
+    // Color code: green < 50ms, yellow < 100ms, red > 100ms
+    if (currentPing < 50) pingCounter.style.color = '#4ade80';
+    else if (currentPing < 100) pingCounter.style.color = '#fbbf24';
+    else pingCounter.style.color = '#f87171';
+  }
+});
 const helpButton = document.getElementById('help-button');
 const howToModal = document.getElementById('howto-modal');
 const howToClose = document.getElementById('howto-close');
@@ -2101,19 +2123,22 @@ socket.on('stateUpdate', (state) => {
     const entry = playerMeshes[id];
     if (!entry) continue;
 
-    if (nametags[id]) nametags[id].textContent = data.username;
+    // Only update nametag once (avoid DOM writes every frame)
+    if (nametags[id] && nametags[id].textContent !== data.username) {
+      nametags[id].textContent = data.username;
+    }
 
     const body = entry.bodyMesh;
     if (data.isInvincible) {
       body.material.emissiveIntensity = 1.0;
-      body.material.emissive = new THREE.Color(0xf1c40f);
+      body.material.emissive.setHex(0xf1c40f);
     } else if (data.isStunned) {
       body.material.emissiveIntensity = 0.8;
-      body.material.emissive = new THREE.Color(0x9b59b6);
+      body.material.emissive.setHex(0x9b59b6);
     } else {
-      const tC = TEAM_COLORS[data.team] || new THREE.Color(0xffffff);
+      const tC = TEAM_COLORS[data.team];
       body.material.emissiveIntensity = 0.2;
-      body.material.emissive = tC;
+      if (tC) body.material.emissive.copy(tC);
     }
 
     const isStealthed = !!data.isStealthed;
@@ -2401,17 +2426,25 @@ function lerpAngle(current, target, alpha) {
   return current + delta * alpha;
 }
 
+// Pre-allocate reusable vectors to avoid GC pressure
+const _moveForward = new THREE.Vector3();
+const _moveRight = new THREE.Vector3();
+const _moveInputVec = new THREE.Vector3();
+const _moveUpVec = new THREE.Vector3(0, 1, 0);
+let _lastSentDirX = 0, _lastSentDirZ = 0;
+let _moveThrottleTimer = 0;
+const MOVE_SEND_INTERVAL = 50; // Send movement max 20x/sec (every 50ms)
+
 function emitMoveIntent() {
   if (!inGame) return;
 
-  // 1. Get the camera's actual looking direction
-  const forward = new THREE.Vector3();
-  camera.getWorldDirection(forward);
-  forward.y = 0;
-  forward.normalize();
+  // 1. Get the camera's actual looking direction (reuse vector)
+  camera.getWorldDirection(_moveForward);
+  _moveForward.y = 0;
+  _moveForward.normalize();
 
-  // 2. Calculate the perpendicular Right vector
-  const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+  // 2. Calculate the perpendicular Right vector (reuse vector)
+  _moveRight.crossVectors(_moveForward, _moveUpVec).normalize();
 
   // 3. Determine raw input (-1, 0, or 1)
   let moveForward = 0;
@@ -2421,17 +2454,28 @@ function emitMoveIntent() {
   if (keys.d) moveRight += 1;
   if (keys.a) moveRight -= 1;
 
-  // 4. Combine vectors based on input
-  const inputVec = new THREE.Vector3();
-  inputVec.addScaledVector(forward, moveForward);
-  inputVec.addScaledVector(right, moveRight);
+  // 4. Combine vectors based on input (reuse vector)
+  _moveInputVec.set(0, 0, 0);
+  _moveInputVec.addScaledVector(_moveForward, moveForward);
+  _moveInputVec.addScaledVector(_moveRight, moveRight);
 
-  if (inputVec.lengthSq() > 0) {
-    inputVec.normalize();
+  if (_moveInputVec.lengthSq() > 0) {
+    _moveInputVec.normalize();
   }
 
-  // 5. Send to server
-  socket.emit('moveIntent', { dirX: inputVec.x, dirZ: inputVec.z });
+  const dirX = _moveInputVec.x;
+  const dirZ = _moveInputVec.z;
+
+  // 5. Only send if direction actually changed OR throttle timer expired
+  const now = performance.now();
+  const dirChanged = Math.abs(dirX - _lastSentDirX) > 0.01 || Math.abs(dirZ - _lastSentDirZ) > 0.01;
+
+  if (dirChanged || (now - _moveThrottleTimer > MOVE_SEND_INTERVAL && (dirX !== 0 || dirZ !== 0))) {
+    socket.emit('moveIntent', { dirX, dirZ });
+    _lastSentDirX = dirX;
+    _lastSentDirZ = dirZ;
+    _moveThrottleTimer = now;
+  }
 }
 
 window.addEventListener('mousemove', (e) => {
@@ -2802,6 +2846,7 @@ function joinGame(classType, username = null) {
   minimapCont.classList.add('visible'); crosshair.classList.add('visible');
   if (hudUltimate) hudUltimate.classList.add('visible');
   fpsCounter.classList.add('visible');
+  if (pingCounter) pingCounter.classList.add('visible');
   inGame = true;
   inLobby = false;
   lastUltTime = Date.now();

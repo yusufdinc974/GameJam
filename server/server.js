@@ -723,6 +723,11 @@ function resetMatch() {
 io.on('connection', (socket) => {
   socket.emit('assignId', socket.id);
 
+  // Ping-pong for latency measurement
+  socket.on('ping_check', () => {
+    socket.emit('pong_check');
+  });
+
   socket.on('joinGame', (data) => {
     if (players[socket.id] || !data) return;
     const classType = CLASS_DEFS[data.classType] ? data.classType : 'warrior';
@@ -1691,12 +1696,19 @@ setInterval(() => {
   const playerSnapshot = {};
   for (const id in players) {
     const p = players[id];
+    // Only send dynamic data that changes every tick (position, health, status)
+    // Static data (username, color, team, type, classType) sent once via 'playerInit'
     playerSnapshot[id] = {
-      id: p.id, username: p.username, x: p.x, y: p.y, z: p.z, color: p.color, team: p.team, type: p.type, classType: p.classType,
-      exp: p.exp, maxExp: p.maxExp, level: p.level, maxHealth: p.maxHealth, currentHealth: p.currentHealth,
-      scale: p.scale, permaDead: p.permaDead, isStunned: p.isStunned, isInvincible: p.isInvincible,
-      isStealthed: p.isStealthed, isConfused: p.isConfused, isChoosingSkill: !!p.isChoosingSkill,
-      skills: { ...(p.skills || {}) }, rotY: p.rotY, hasBossBuff: !!p.hasBossBuff
+      id: p.id, x: p.x, y: p.y, z: p.z, rotY: p.rotY,
+      exp: p.exp, maxExp: p.maxExp, level: p.level,
+      maxHealth: p.maxHealth, currentHealth: p.currentHealth,
+      scale: p.scale, permaDead: p.permaDead,
+      isStunned: p.isStunned, isInvincible: p.isInvincible,
+      isStealthed: p.isStealthed, isConfused: p.isConfused,
+      isChoosingSkill: !!p.isChoosingSkill, hasBossBuff: !!p.hasBossBuff,
+      // Include static fields only for new/unknown players (client caches these)
+      username: p.username, color: p.color, team: p.team,
+      type: p.type, classType: p.classType,
     };
   }
 
